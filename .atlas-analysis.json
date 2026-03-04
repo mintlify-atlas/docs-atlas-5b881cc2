@@ -1,0 +1,132 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Nokia BNG Lab",
+  "projectDescription": "Containerlab-based network laboratory for Nokia BNG dual-stack deployment with telemetry and RADIUS",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/prerequisites",
+              "deployment/installation",
+              "deployment/verification"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/topology",
+              "architecture/network-flow"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/bng-devices",
+              "configuration/olt-ont",
+              "configuration/radius",
+              "configuration/network-services"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/access-services",
+              "operations/monitoring",
+              "operations/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Telemetry",
+        "groups": [
+          {
+            "group": "Stack Overview",
+            "pages": [
+              "telemetry/overview"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "telemetry/gnmic",
+              "telemetry/prometheus",
+              "telemetry/grafana"
+            ]
+          },
+          {
+            "group": "Metrics",
+            "pages": [
+              "telemetry/available-metrics",
+              "telemetry/dashboards"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Device Configurations",
+            "pages": [
+              "reference/bng1-config",
+              "reference/bng2-config",
+              "reference/switch-config",
+              "reference/olt-config"
+            ]
+          },
+          {
+            "group": "Network Services",
+            "pages": [
+              "reference/ipoe-service",
+              "reference/pppoe-service",
+              "reference/nat-configuration"
+            ]
+          },
+          {
+            "group": "Scripts",
+            "pages": [
+              "reference/automation-scripts"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dual-stack BNG deployment with Nokia SR-7 routers",
+    "IPoE and PPPoE subscriber management",
+    "Full telemetry stack with gNMI, Prometheus, and Grafana",
+    "RADIUS authentication and accounting",
+    "Network sharing architecture with transport layer",
+    "NAT configuration for ISP services",
+    "OLT/ONT simulation for fiber access"
+  ],
+  "publicApiSurface": [
+    "BNG1 SSH: localhost:56661",
+    "BNG2 SSH: localhost:56664",
+    "Switch SSH: localhost:56667",
+    "OLT SSH: localhost:56678",
+    "ONT1 SSH: localhost:56673",
+    "ONT2 SSH: localhost:56674",
+    "Grafana: http://localhost:3030",
+    "Prometheus: http://localhost:9090",
+    "RADIUS Server: 10.77.1.10"
+  ]
+}
