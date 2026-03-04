@@ -1,0 +1,370 @@
+---
+title: 'BNG Router Configuration'
+description: 'Nokia SR-7 BNG device configuration for ISP service delivery'
+---
+
+# BNG Router Configuration
+
+The Nokia BNG Lab uses two Nokia SR-7 routers (BNG1 and BNG2) running SR OS to provide broadband network gateway services. These devices handle subscriber management, authentication, QoS, and Carrier-Grade NAT (CGN).
+
+## Hardware Configuration
+
+<Tabs>
+  <Tab title="BNG1">
+    **Device Type:** Nokia SR-7
+    
+    **Management IP:** 10.77.1.2
+    
+    **Hardware Components:**
+    - Slot 1: IOM5-E with ME6-100GB-QSFP28 MDA
+    - Slot 2: IOM4-E-B with ISA2-BB (for NAT processing)
+    - SFM: M-SFM6-7/12
+    
+    **Access Ports:**
+    - SSH: Port 56661
+    - gRPC: Port 56662  
+    - NETCONF: Port 56663
+  </Tab>
+  
+  <Tab title="BNG2">
+    **Device Type:** Nokia SR-7
+    
+    **Management IP:** 10.77.1.3
+    
+    **Hardware Components:**
+    - Slot 1: IOM5-E with ME6-100GB-QSFP28 MDA
+    - Slot 2: IOM4-E-B with ISA2-BB (for NAT processing)
+    - SFM: M-SFM6-7/12
+    
+    **Access Ports:**
+    - SSH: Port 56664
+    - gRPC: Port 56665
+    - NETCONF: Port 56666
+  </Tab>
+</Tabs>
+
+## System Configuration
+
+### System Identification
+
+<CodeGroup>
+```nokia-sros BNG1
+/configure system name "BNG1"
+/configure system time zone standard name est
+```
+
+```nokia-sros BNG2
+/configure system name "BNG2"
+/configure system time zone standard name est
+```
+</CodeGroup>
+
+### Management Interfaces
+
+Both BNG routers are configured with gRPC, NETCONF, and SNMP for comprehensive network management:
+
+```nokia-sros
+# gRPC Configuration
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+/configure system grpc rib-api admin-state enable
+
+# NETCONF Configuration
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# SNMP Configuration
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+```
+
+<Note>
+The gRPC RIB API is enabled to allow programmatic access to routing information, useful for integration with monitoring and orchestration systems.
+</Note>
+
+## Physical Port Configuration
+
+### Subscriber-Facing Ports
+
+The BNG devices use 100G QSFP28 ports in breakout mode for subscriber traffic:
+
+```nokia-sros
+# Port to TX (Upstream)
+/configure port 1/1/c1 admin-state enable
+/configure port 1/1/c1 connector breakout c1-100g
+/configure port 1/1/c1/1 admin-state enable
+/configure port 1/1/c1/1 ethernet mode hybrid
+/configure port 1/1/c1/1 ethernet encap-type qinq
+```
+
+<Warning>
+The hybrid mode with QinQ encapsulation is critical for supporting multiple VLANs per subscriber. Ensure your access network supports 802.1ad (QinQ) tagging.
+</Warning>
+
+### Internet Gateway Ports
+
+```nokia-sros
+# Port to IPERF (Internet Simulation)
+/configure port 1/1/c2 admin-state enable
+/configure port 1/1/c2 connector breakout c1-100g
+/configure port 1/1/c2/1 admin-state enable
+/configure port 1/1/c2/1 ethernet mode hybrid
+```
+
+## RADIUS Integration
+
+### RADIUS Server Configuration
+
+The BNG devices communicate with the RADIUS server (10.77.1.10) for AAA services:
+
+```nokia-sros
+/configure router "management" radius server "radius" address 10.77.1.10
+/configure router "management" radius server "radius" secret testlab123
+/configure router "management" radius server "radius" accept-coa true
+```
+
+### RADIUS Server Policy
+
+```nokia-sros
+/configure aaa radius server-policy "radius_policy"
+/configure aaa radius server-policy "radius_policy" servers retry-count 5
+/configure aaa radius server-policy "radius_policy" servers router-instance "management"
+/configure aaa radius server-policy "radius_policy" servers source-address 10.77.1.2  # BNG1
+/configure aaa radius server-policy "radius_policy" servers server 1 server-name "radius"
+/configure aaa radius server-policy "radius_policy" acct-on-off
+```
+
+### Authentication Policy
+
+<Accordion title="Full Authentication Policy Configuration">
+```nokia-sros
+/configure subscriber-mgmt radius-authentication-policy "autpolicy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" password testlab123
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" pppoe-access-method pap-chap
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" radius-server-policy "radius_policy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" re-authentication true
+
+# Fallback to local database
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" fallback action user-db "clientes"
+
+# RADIUS Attributes
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute access-loop-options true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute called-station-id true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute dhcp-options true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute mac-address true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute nas-identifier true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute calling-station-id type sap-string
+```
+</Accordion>
+
+### Accounting Policy
+
+```nokia-sros
+/configure subscriber-mgmt radius-accounting-policy "accounting"
+/configure subscriber-mgmt radius-accounting-policy "accounting" radius-server-policy "radius_policy"
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-id-format number
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting admin-state enable
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting interim-update true
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting host-update true
+/configure subscriber-mgmt radius-accounting-policy "accounting" update-interval interval 720
+```
+
+<Note>
+Interim accounting updates are sent every 720 seconds (12 minutes) to track subscriber usage and session status.
+</Note>
+
+## QoS Configuration
+
+### SAP Ingress QoS Policy
+
+The ingress QoS policy defines how subscriber traffic is classified and queued:
+
+```nokia-sros
+/configure qos sap-ingress "10"
+/configure qos sap-ingress "10" queue 1
+/configure qos sap-ingress "10" queue 11 multipoint true
+
+# Forwarding Class Mappings
+/configure qos sap-ingress "10" fc "af" queue 1
+/configure qos sap-ingress "10" fc "be" queue 1
+/configure qos sap-ingress "10" fc "ef" queue 1
+/configure qos sap-ingress "10" fc "h1" queue 1
+/configure qos sap-ingress "10" fc "h2" queue 1
+/configure qos sap-ingress "10" fc "l1" queue 1
+/configure qos sap-ingress "10" fc "l2" queue 1
+/configure qos sap-ingress "10" fc "nc" queue 1
+```
+
+### SAP Egress QoS Policy
+
+```nokia-sros
+/configure qos sap-egress "10" queue 1
+/configure qos sap-egress "10" fc be queue 1
+/configure qos sap-egress "10" fc l2 queue 1
+/configure qos sap-egress "10" fc af queue 1
+/configure qos sap-egress "10" fc ef queue 1
+/configure qos sap-egress "10" fc h1 queue 1
+/configure qos sap-egress "10" fc h2 queue 1
+/configure qos sap-egress "10" fc nc queue 1
+```
+
+## Enhanced Subscriber Management (ESM)
+
+### IPoE Session Policy
+
+```nokia-sros
+/configure subscriber-mgmt ipoe-session-policy "ipoe"
+```
+
+### PPPoE Policy
+
+```nokia-sros
+/configure subscriber-mgmt ppp-policy "pppoe"
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-authentication pref-pap
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-initial-delay true
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-mtu 1500
+/configure subscriber-mgmt ppp-policy "pppoe" reply-on-padt true
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive interval 10
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive hold-up-multiplier 4
+```
+
+<Note>
+PPPoE keepalives are sent every 10 seconds. A session is considered down if 4 consecutive keepalives fail (40 seconds total).
+</Note>
+
+### Subscriber Profile
+
+```nokia-sros
+/configure subscriber-mgmt sub-profile "subprofile"
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting policy ["accounting"]
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting session-optimized-stop true
+```
+
+### Subscriber Identification Policy
+
+```nokia-sros
+/configure subscriber-mgmt sub-ident-policy "subident"
+/configure subscriber-mgmt sub-ident-policy "subident" sla-profile-map use-direct-map-as-default true
+/configure subscriber-mgmt sub-ident-policy "subident" sub-profile-map use-direct-map-as-default true
+```
+
+### SLA Profile
+
+The SLA profile defines bandwidth limits and host restrictions per subscriber:
+
+```nokia-sros
+/configure subscriber-mgmt sla-profile "100M"
+
+# Egress QoS (Downstream to Subscriber)
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress policy-name "10"
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 stat-mode v4-v6
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate pir 100000
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate cir 100000
+
+# Ingress QoS (Upstream from Subscriber)
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress policy-name "10"
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 stat-mode v4-v6
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 rate pir 100000
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 rate cir 100000
+
+# Host Limits
+/configure subscriber-mgmt sla-profile "100M" host-limits overall 10
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv4 dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 pd-ipoe-dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 wan-ipoe-dhcp 1
+
+# NAT Filter
+/configure subscriber-mgmt sla-profile "100M" ingress ip-filter "10"
+```
+
+<Note>
+Bandwidth rates are specified in Kbps. PIR (Peak Information Rate) and CIR (Committed Information Rate) are both set to 100000 Kbps (100 Mbps).
+</Note>
+
+### MSAP Policy
+
+```nokia-sros
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt subscriber-limit 131071
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt sub-ident-policy "subident"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sla-profile "100M"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sub-profile "subprofile"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults subscriber-id auto-id
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt single-sub-parameters profiled-traffic-only true
+/configure subscriber-mgmt msap-policy "msap" ies-vprn-only-sap-parameters anti-spoof next-hop-ip-and-mac-addr
+/configure subscriber-mgmt msap-policy "msap" ies-vprn-only-sap-parameters ingress qos queuing-type service
+```
+
+## Capture SAP Configuration
+
+The capture SAP dynamically creates subscriber sessions based on trigger packets:
+
+```nokia-sros
+/configure service vpls "capture-sap" admin-state enable
+/configure service vpls "capture-sap" service-id 2
+/configure service vpls "capture-sap" customer "1"
+
+# Capture all VLANs on port 1/1/c1/1
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.*
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* radius-auth-policy "autpolicy"
+
+# Trigger Packets
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* trigger-packet dhcp true
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* trigger-packet dhcp6 true
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* trigger-packet pppoe true
+
+# MSAP Defaults
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults policy "msap"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults service-name "9998"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults group-interface "gi"
+
+# Session Management
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* ipoe-session admin-state enable
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* ipoe-session ipoe-session-policy "ipoe"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* ipoe-session user-db "clientes"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* pppoe policy "pppoe"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* pppoe user-db "clientes"
+```
+
+<Warning>
+The capture SAP with wildcard (`*.*`) will match ALL VLANs on the specified port. Ensure proper filtering is in place to prevent unauthorized access.
+</Warning>
+
+## Key Configuration Differences
+
+Between BNG1 and BNG2, the primary differences are:
+
+<Tabs>
+  <Tab title="Identity">
+    - System name (BNG1 vs BNG2)
+    - Management IP address (10.77.1.2 vs 10.77.1.3)
+    - RADIUS source address
+  </Tab>
+  
+  <Tab title="Services">
+    - BNG1 serves subscribers via VLAN 50.150 (OLT aggregation)
+    - BNG2 serves subscribers via VLAN 60.150 (OLT aggregation)
+    - Both provide identical subscriber services
+  </Tab>
+  
+  <Tab title="Access Ports">
+    - SSH: 56661 (BNG1) vs 56664 (BNG2)
+    - gRPC: 56662 (BNG1) vs 56665 (BNG2)
+    - NETCONF: 56663 (BNG1) vs 56666 (BNG2)
+  </Tab>
+</Tabs>
+
+## Configuration Files
+
+The complete configuration files are located at:
+- **BNG1**: `configs/sros/config-bng.txt`
+- **BNG2**: `configs/sros/config-bng-2.txt`
+
+## Related Topics
+
+- [Network Services Configuration](/configuration/network-services)
+- [RADIUS Server Configuration](/configuration/radius)
+- [OLT and ONT Configuration](/configuration/olt-ont)

@@ -1,0 +1,507 @@
+---
+title: Monitoring & Observability
+description: Telemetry stack, metrics collection, and monitoring dashboards
+---
+
+The Nokia BNG lab includes a comprehensive telemetry stack based on gNMI, Prometheus, and Grafana for real-time monitoring and observability.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Telemetry Stack Flow                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Nokia Devices (BNG, Switch, OLT, TX)                      │
+│          │                                                  │
+│          │ gRPC/gNMI (port 57400)                         │
+│          ▼                                                  │
+│     gNMIc Collector (10.77.1.12:9273)                      │
+│          │                                                  │
+│          │ Prometheus Exposition                           │
+│          ▼                                                  │
+│   Prometheus TSDB (10.77.1.13:9090)                        │
+│          │                                                  │
+│          │ PromQL Queries                                  │
+│          ▼                                                  │
+│   Grafana Dashboards (10.77.1.14:3000)                     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Grafana Dashboard Access
+
+<Steps>
+  <Step title="Access Grafana UI">
+    Open your browser and navigate to:
+    ```
+    http://localhost:3030
+    ```
+    
+    **Credentials:**
+    - Username: `admin`
+    - Password: `admin`
+  </Step>
+
+  <Step title="Verify Data Source">
+    Navigate to **Configuration → Data Sources** to verify Prometheus connection:
+    
+    - **Name**: Prometheus
+    - **Type**: prometheus
+    - **URL**: `http://prometheus:9090`
+    - **UID**: `prometheus`
+    - **Status**: Should show green checkmark
+  </Step>
+
+  <Step title="Access Pre-configured Dashboards">
+    Dashboards are auto-provisioned from `/var/lib/grafana/dashboards`:
+    
+    - Nokia SROS System Metrics
+    - Interface Statistics
+    - BNG Subscriber Sessions
+    - Network Instance Status
+  </Step>
+</Steps>
+
+<Note>
+Grafana is configured with anonymous access enabled (Editor role), allowing dashboard viewing without authentication.
+</Note>
+
+## Prometheus Metrics
+
+### Access Prometheus UI
+
+```
+http://localhost:9090
+```
+
+<Accordion title="Key Prometheus Endpoints">
+  - **Targets**: http://localhost:9090/targets
+  - **Configuration**: http://localhost:9090/config
+  - **Service Discovery**: http://localhost:9090/service-discovery
+  - **Alerts**: http://localhost:9090/alerts
+</Accordion>
+
+### Prometheus Configuration
+
+The Prometheus server scrapes metrics from gNMIc:
+
+```yaml
+# From configs/prometheus/prometheus.yml
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "gnmic"
+    static_configs:
+      - targets: ["gnmic:9273"]
+```
+
+<Warning>
+All metrics are scraped at **5-second intervals**. Adjust this if you experience performance issues or need different granularity.
+</Warning>
+
+### Verify Metric Collection
+
+<Steps>
+  <Step title="Check gNMIc Metrics Endpoint">
+    ```bash
+    curl http://localhost:9273/metrics
+    ```
+    
+    You should see Prometheus-formatted metrics from all Nokia devices.
+  </Step>
+
+  <Step title="Query Metrics in Prometheus">
+    Navigate to http://localhost:9090/graph and try:
+    ```promql
+    # CPU usage across all devices
+    system_cpu_total
+    
+    # Interface statistics
+    port_statistics_in_octets
+    
+    # Operational state
+    port_oper_state
+    ```
+  </Step>
+
+  <Step title="Check Target Health">
+    Visit http://localhost:9090/targets and verify:
+    - Target: `gnmic:9273`
+    - State: **UP**
+    - Last Scrape: < 5s ago
+  </Step>
+</Steps>
+
+## gNMIc Telemetry Collector
+
+### Configuration Overview
+
+The gNMIc collector automatically discovers and subscribes to Nokia devices using Docker labels.
+
+<Accordion title="Device Discovery Configuration">
+  ```yaml
+  # From configs/gnmic/config.yml
+  loader:
+    type: docker
+    address: unix:///run/docker.sock
+    filters:
+      # SR Linux nodes
+      - containers:
+          - label: clab-node-kind=nokia_srlinux
+        network:
+          label: containerlab
+        port: "57400"
+        config:
+          username: admin
+          password: lab123
+          skip-verify: true
+          encoding: proto
+      
+      # SR OS nodes (BNG, Switch, OLT)
+      - containers:
+          - label: clab-node-kind=nokia_srsim
+        network:
+          label: containerlab
+        port: "57400"
+        config:
+          username: admin
+          password: lab123
+          insecure: true
+          encoding: json
+  ```
+</Accordion>
+
+### Active Subscriptions
+
+<Accordion title="SR Linux Subscriptions">
+  **Sample Interval**: 5 seconds
+  
+  - `srl_platform`: CPU and memory usage
+  - `srl_apps`: Application management
+  - `srl_if_stats`: Interface statistics and operational state
+  - `srl_if_lag_stats`: LAG member statistics
+  - `srl_net_instance`: Network instance state and route tables
+  - `srl_bgp_stats`: BGP protocol statistics
+  - `srl_event_handler_stats`: Event handler metrics
+</Accordion>
+
+<Accordion title="SR OS Subscriptions (BNG/Switch/OLT)">
+  **Sample Interval**: 5 seconds (10s for VPLS SAPs)
+  
+  - `sros_ports_stats`: Port operational state and statistics
+  - `sros_router_bgp`: BGP statistics and routes per family
+  - `sros_router_interface`: IPv4/IPv6 interface statistics
+  - `sros_router_isis`: IS-IS protocol statistics
+  - `sros_router_route_table`: Route table statistics
+  - `sros_system`: CPU and memory pool usage
+  - `sros_service_stats`: VPLS/VPRN service operational state
+  - `sros_ludb`: Local user database (subscriber info)
+  - `sros_vpls_sap_all`: VPLS SAP statistics
+  - `sros_temperature_stats`: Hardware temperature sensors
+  - `sros_fan_stats`: Chassis fan speeds
+</Accordion>
+
+### View gNMIc Logs
+
+```bash
+# Real-time log streaming
+docker logs -f clab-lab-gnmic
+
+# Last 100 lines
+docker logs --tail 100 clab-lab-gnmic
+
+# Logs with timestamps
+docker logs -t clab-lab-gnmic
+```
+
+<Tip>
+The gNMIc collector logs all subscription activities, connection status, and metric processing. Use these logs to debug telemetry issues.
+</Tip>
+
+## Key Metrics to Monitor
+
+### System Health Metrics
+
+<Accordion title="CPU Usage">
+  ```promql
+  # SR OS CPU utilization (1-second sample)
+  system_cpu_total{source="bng1"}
+  
+  # SR Linux CPU usage
+  platform_control_cpu_total{source="tx"}
+  ```
+  
+  <Warning>
+  Alert if CPU usage exceeds 80% for more than 5 minutes.
+  </Warning>
+</Accordion>
+
+<Accordion title="Memory Usage">
+  ```promql
+  # SR OS memory pools
+  system_memory_pools_summary_total
+  
+  # SR Linux memory
+  platform_control_memory_physical
+  platform_control_memory_utilized
+  ```
+</Accordion>
+
+<Accordion title="Interface Status">
+  ```promql
+  # Port operational state (1=up, 0=down)
+  port_oper_state
+  
+  # SR Linux interface state
+  interface_oper_state
+  ```
+  
+  <Note>
+  Critical interfaces should be monitored with alerts for state changes.
+  </Note>
+</Accordion>
+
+### BNG-Specific Metrics
+
+<Accordion title="Subscriber Sessions">
+  ```promql
+  # Local user database entries
+  subscriber_mgmt_local_user_db_ipoe_host_session_count
+  subscriber_mgmt_local_user_db_ppp_session_count
+  
+  # Session statistics by type
+  rate(subscriber_mgmt_local_user_db_ipoe_sessions_created[5m])
+  ```
+</Accordion>
+
+<Accordion title="VPLS Service Status">
+  ```promql
+  # Service operational state
+  service_vpls_oper_state{service_name="subscriber-vlan-150"}
+  
+  # SAP statistics
+  service_vpls_sap_stats_ingress_octets
+  service_vpls_sap_stats_egress_octets
+  ```
+</Accordion>
+
+### Network Performance Metrics
+
+<Accordion title="Interface Traffic">
+  ```promql
+  # Ingress traffic rate (bytes/sec)
+  rate(port_statistics_in_octets[1m])
+  
+  # Egress traffic rate
+  rate(port_statistics_out_octets[1m])
+  
+  # Packet rates
+  rate(port_statistics_in_packets[1m])
+  rate(port_statistics_out_packets[1m])
+  ```
+</Accordion>
+
+<Accordion title="Interface Errors">
+  ```promql
+  # Input errors
+  rate(port_statistics_in_errors[5m])
+  
+  # Output errors
+  rate(port_statistics_out_errors[5m])
+  
+  # Discards
+  rate(port_statistics_in_discards[5m])
+  ```
+  
+  <Warning>
+  Any non-zero error rate should be investigated immediately.
+  </Warning>
+</Accordion>
+
+<Accordion title="BGP Sessions">
+  ```promql
+  # BGP established sessions
+  router_bgp_statistics_established_sessions
+  
+  # Routes per address family
+  router_bgp_statistics_routes_per_family_active_routes{family="ipv4"}
+  ```
+</Accordion>
+
+## RADIUS Accounting Logs
+
+### Access RADIUS Logs
+
+<Steps>
+  <Step title="View Authentication Logs">
+    ```bash
+    docker exec clab-lab-radius tail -f /var/log/radius/radius.log
+    ```
+  </Step>
+
+  <Step title="View Accounting Logs">
+    ```bash
+    docker exec clab-lab-radius tail -f /var/log/radius/radacct/*/*
+    ```
+  </Step>
+
+  <Step title="Search for Specific User">
+    ```bash
+    docker exec clab-lab-radius grep "test@test.com" /var/log/radius/radius.log
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="RADIUS Log Locations">
+  - **Main Log**: `/var/log/radius/radius.log`
+  - **Accounting**: `/var/log/radius/radacct/`
+  - **Configuration**: `/etc/raddb/`
+  
+  ```bash
+  # View active RADIUS sessions
+  docker exec clab-lab-radius radclient localhost status testing123
+  
+  # Debug mode (verbose logging)
+  docker exec clab-lab-radius radiusd -X
+  ```
+</Accordion>
+
+## Device Health Monitoring
+
+### Temperature Monitoring
+
+```promql
+# Card temperature sensors
+card_hardware_data_temperature_current
+
+# MDA temperature
+card_mda_hardware_data_temperature_current
+
+# Control module temperature
+chassis_chassis_control_module_hardware_data_temperature_current
+```
+
+<Warning>
+Temperature thresholds:
+- **Normal**: < 65°C
+- **Warning**: 65-75°C
+- **Critical**: > 75°C
+</Warning>
+
+### Fan Speed Monitoring
+
+```promql
+# Fan speeds (RPM)
+chassis_fan_speed_current
+```
+
+<Note>
+Fan speed should remain consistent. Sudden drops may indicate hardware issues.
+</Note>
+
+## Container Logs and Monitoring
+
+### View Container Logs
+
+<Accordion title="Network Devices">
+  ```bash
+  # BNG logs
+  docker logs clab-lab-bng1
+  docker logs clab-lab-bng2
+  
+  # Switch and OLT
+  docker logs clab-lab-switch
+  docker logs clab-lab-olt
+  
+  # Transit router
+  docker logs clab-lab-tx
+  ```
+</Accordion>
+
+<Accordion title="Telemetry Stack">
+  ```bash
+  # gNMIc collector
+  docker logs -f clab-lab-gnmic
+  
+  # Prometheus
+  docker logs clab-lab-prometheus
+  
+  # Grafana
+  docker logs clab-lab-grafana
+  ```
+</Accordion>
+
+<Accordion title="Services">
+  ```bash
+  # RADIUS server
+  docker logs clab-lab-radius
+  
+  # Subscriber devices
+  docker logs clab-lab-ont1
+  docker logs clab-lab-ont2
+  ```
+</Accordion>
+
+### Container Resource Usage
+
+```bash
+# Real-time stats for all containers
+docker stats
+
+# Stats for specific container
+docker stats clab-lab-bng1
+
+# One-time snapshot
+docker stats --no-stream
+```
+
+## Alerting Best Practices
+
+<Tip>
+**Recommended Alerts:**
+
+1. **Device Down**: `port_oper_state == 0` on critical links
+2. **High CPU**: `system_cpu_total > 80` for 5 minutes
+3. **Memory Exhaustion**: Memory utilization > 90%
+4. **Interface Errors**: Non-zero error rates
+5. **BGP Session Down**: Loss of established BGP peers
+6. **Subscriber Session Failures**: Failed authentication attempts
+7. **Temperature Alert**: Hardware temperature > 70°C
+8. **License Expiry**: Nokia license approaching expiration
+</Tip>
+
+## Troubleshooting Monitoring Issues
+
+<Accordion title="No Metrics in Prometheus">
+  1. Check gNMIc is running: `docker ps | grep gnmic`
+  2. Verify gNMIc metrics endpoint: `curl http://localhost:9273/metrics`
+  3. Check Prometheus targets: http://localhost:9090/targets
+  4. Review gNMIc logs: `docker logs clab-lab-gnmic`
+</Accordion>
+
+<Accordion title="Grafana Shows No Data">
+  1. Verify Prometheus data source connection in Grafana
+  2. Check time range in dashboard (default: last 6 hours)
+  3. Run test query in Prometheus UI first
+  4. Ensure dashboards are using correct metric names
+</Accordion>
+
+<Accordion title="gNMIc Connection Failures">
+  1. Verify device gRPC port is accessible: `netstat -tuln | grep 57400`
+  2. Check credentials: `admin/lab123`
+  3. Confirm Docker socket is mounted: `docker exec clab-lab-gnmic ls -l /var/run/docker.sock`
+  4. Review device labels: `docker inspect clab-lab-bng1 | grep clab-node-kind`
+</Accordion>
+
+## Performance Optimization
+
+<Tip>
+**Reduce Resource Usage:**
+
+1. Increase scrape interval from 5s to 10s or 15s
+2. Reduce retention period in Prometheus
+3. Disable unused subscriptions in gNMIc config
+4. Limit metric cardinality by filtering unnecessary labels
+</Tip>

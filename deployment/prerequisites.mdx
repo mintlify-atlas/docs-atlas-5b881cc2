@@ -1,0 +1,357 @@
+---
+title: Prerequisites
+description: System requirements and dependencies for Nokia BNG Lab
+---
+
+Before deploying the Nokia BNG Lab, ensure your system meets all the requirements below.
+
+## System Requirements
+
+<Note>
+This lab requires significant system resources due to multiple network nodes running simultaneously.
+</Note>
+
+### Minimum Hardware Requirements
+
+- **CPU**: 8 cores (16 recommended)
+- **RAM**: 16 GB minimum (32 GB recommended)
+- **Disk Space**: 50 GB free space
+- **Architecture**: x86_64 (AMD64)
+
+### Operating System
+
+- Linux distribution (Ubuntu 20.04+ or equivalent)
+- Kernel version 4.x or higher
+- Root or sudo access required
+
+<Warning>
+Windows and macOS are not directly supported. Use a Linux VM or WSL2 for Windows users.
+</Warning>
+
+## Software Dependencies
+
+### Containerlab
+
+<Steps>
+  <Step title="Check Containerlab Version">
+    The lab requires Containerlab v0.50 or higher.
+    
+    ```bash
+    containerlab version
+    ```
+    
+    Expected output should show version 0.50.0 or higher.
+  </Step>
+  
+  <Step title="Install Containerlab (if needed)">
+    If Containerlab is not installed or needs updating:
+    
+    ```bash
+    # Download and install latest version
+    bash -c "$(curl -sL https://get.containerlab.dev)"
+    
+    # Verify installation
+    containerlab version
+    ```
+  </Step>
+</Steps>
+
+### Docker
+
+<Steps>
+  <Step title="Check Docker Version">
+    Docker v24.0 or higher is required.
+    
+    ```bash
+    docker --version
+    ```
+  </Step>
+  
+  <Step title="Install Docker (if needed)">
+    ```bash
+    # Ubuntu/Debian
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    
+    # Add user to docker group
+    sudo usermod -aG docker $USER
+    newgrp docker
+    ```
+  </Step>
+  
+  <Step title="Verify Docker Service">
+    ```bash
+    # Check Docker service status
+    sudo systemctl status docker
+    
+    # Enable Docker on boot
+    sudo systemctl enable docker
+    ```
+  </Step>
+</Steps>
+
+## Nokia Requirements
+
+### SR-SIM License
+
+<Warning>
+A valid Nokia SR-SIM license is **required** to run the BNG nodes. The license is not included in this repository.
+</Warning>
+
+You need:
+
+- Valid Nokia SR-SIM license file (`SR_SIM_license.txt`)
+- License must support:
+  - SR-7 platform
+  - IXR-ec platform
+  - Required features (BNG, ISA cards)
+
+<Info>
+Contact Nokia or your Nokia representative to obtain evaluation or production licenses.
+</Info>
+
+### Nokia SR OS Images
+
+The lab requires Nokia SR OS image version **25.10.R2**:
+
+<Steps>
+  <Step title="Obtain Nokia Images">
+    Download the following from Nokia support portal:
+    - SR OS image version 25.10.R2
+    - SRLinux image version 25.10
+  </Step>
+  
+  <Step title="Import SR OS Image">
+    ```bash
+    # Import the SR OS image to Docker
+    docker import sros-25.10.R2.tar localhost/nokia/srsim:25.10.R2
+    
+    # Verify the image
+    docker images | grep nokia/srsim
+    ```
+  </Step>
+  
+  <Step title="Pull SRLinux Image">
+    ```bash
+    # Pull SRLinux image from GitHub Container Registry
+    docker pull ghcr.io/nokia/srlinux:25.10
+    ```
+  </Step>
+</Steps>
+
+## Network Requirements
+
+### Port Availability
+
+The following host ports must be available:
+
+<Accordion title="SSH Ports">
+  - `56661` - BNG1 SSH
+  - `56664` - BNG2 SSH
+  - `56667` - Switch SSH
+  - `56678` - OLT SSH
+  - `56673` - ONT1 SSH
+  - `56674` - ONT2 SSH
+  - `56675` - iPerf SSH
+  - `56676` - TX (SRLinux) SSH
+  - `56677` - PC1 SSH
+</Accordion>
+
+<Accordion title="gNMI Ports">
+  - `56662` - BNG1 gNMI (57400)
+  - `56665` - BNG2 gNMI (57400)
+  - `56668` - Switch gNMI (57400)
+  - `56671` - OLT gNMI (57400)
+</Accordion>
+
+<Accordion title="NETCONF Ports">
+  - `56663` - BNG1 NETCONF (830)
+  - `56666` - BNG2 NETCONF (830)
+  - `56669` - Switch NETCONF (830)
+  - `56672` - OLT NETCONF (830)
+</Accordion>
+
+<Accordion title="Application Ports">
+  - `3030` - Grafana dashboard
+  - `9090` - Prometheus metrics
+  - `8081` - ONT1 web interface
+  - `8082` - ONT2 web interface
+</Accordion>
+
+<Info>
+Check port availability with: `sudo netstat -tulpn | grep -E '(3030|9090|5666[1-9]|5667[0-8]|808[1-2])'`
+</Info>
+
+### Management Network
+
+Containerlab will create a Docker network:
+
+- **Network Name**: `lab`
+- **Subnet**: `10.77.1.0/24`
+- **Gateway**: `10.77.1.1` (Docker bridge)
+
+<Note>
+Ensure this subnet doesn't conflict with existing networks on your system.
+</Note>
+
+## Container Images
+
+The lab uses several public container images that will be pulled automatically:
+
+| Image | Purpose | Size |
+|-------|---------|------|
+| `ghcr.io/abelperezr/ont-ds:0.2` | ONT devices | ~200MB |
+| `ghcr.io/srl-labs/network-multitool` | Testing tools | ~50MB |
+| `ghcr.io/openconfig/gnmic:latest` | Telemetry collector | ~100MB |
+| `prom/prometheus` | Metrics database | ~200MB |
+| `grafana/grafana:10.3.5` | Visualization | ~300MB |
+| `ghcr.io/nokia/srlinux:25.10` | SR Linux router | ~1.5GB |
+
+<Steps>
+  <Step title="Pre-pull Images (Optional)">
+    To speed up deployment, pre-pull the images:
+    
+    ```bash
+    docker pull ghcr.io/abelperezr/ont-ds:0.2
+    docker pull ghcr.io/srl-labs/network-multitool
+    docker pull ghcr.io/openconfig/gnmic:latest
+    docker pull prom/prometheus
+    docker pull grafana/grafana:10.3.5
+    docker pull ghcr.io/nokia/srlinux:25.10
+    ```
+  </Step>
+</Steps>
+
+## System Preparation
+
+### Kernel Modules
+
+<Steps>
+  <Step title="Load Required Modules">
+    ```bash
+    # Enable IP forwarding
+    sudo sysctl -w net.ipv4.ip_forward=1
+    sudo sysctl -w net.ipv6.conf.all.forwarding=1
+    
+    # Make persistent
+    echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+    echo "net.ipv6.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
+    ```
+  </Step>
+</Steps>
+
+### Firewall Configuration
+
+<Warning>
+If using a firewall, ensure Docker and Containerlab traffic is allowed.
+</Warning>
+
+```bash
+# UFW users
+sudo ufw allow 3030/tcp comment 'Grafana'
+sudo ufw allow 9090/tcp comment 'Prometheus'
+sudo ufw allow from 10.77.1.0/24 comment 'Containerlab management'
+```
+
+## Pre-deployment Checklist
+
+<Steps>
+  <Step title="Verify System Resources">
+    ```bash
+    # Check CPU cores
+    nproc
+    
+    # Check available RAM
+    free -h
+    
+    # Check disk space
+    df -h
+    ```
+  </Step>
+  
+  <Step title="Verify Software Versions">
+    ```bash
+    containerlab version  # Should be 0.50+
+    docker --version      # Should be 24.0+
+    ```
+  </Step>
+  
+  <Step title="Check Docker Images">
+    ```bash
+    # Verify Nokia images are available
+    docker images | grep -E '(nokia/srsim|nokia/srlinux)'
+    ```
+  </Step>
+  
+  <Step title="Verify License File">
+    ```bash
+    # Check license file exists
+    ls -lh configs/license/SR_SIM_license.txt
+    ```
+  </Step>
+  
+  <Step title="Check Port Availability">
+    ```bash
+    # Verify key ports are free
+    sudo netstat -tulpn | grep -E '(3030|9090)'
+    ```
+    
+    No output means ports are available.
+  </Step>
+</Steps>
+
+## Troubleshooting Prerequisites
+
+<Accordion title="Docker Permission Denied">
+  If you see "permission denied" errors:
+  
+  ```bash
+  # Add user to docker group
+  sudo usermod -aG docker $USER
+  
+  # Log out and back in, or run:
+  newgrp docker
+  ```
+</Accordion>
+
+<Accordion title="Port Already in Use">
+  Find which process is using a port:
+  
+  ```bash
+  sudo netstat -tulpn | grep <port_number>
+  # or
+  sudo lsof -i :<port_number>
+  ```
+  
+  Stop the conflicting service or modify the lab.yml to use different ports.
+</Accordion>
+
+<Accordion title="Insufficient System Resources">
+  To reduce resource usage:
+  
+  1. Close unnecessary applications
+  2. Consider deploying only specific nodes you need
+  3. Modify lab.yml to comment out unused nodes
+  4. Use a more powerful system or cloud VM
+</Accordion>
+
+<Accordion title="Cannot Import Nokia Image">
+  Ensure:
+  
+  1. You have the correct SR OS image file
+  2. The file is not corrupted (check MD5/SHA)
+  3. Sufficient disk space is available
+  4. Docker service is running properly
+  
+  ```bash
+  # Check Docker status
+  sudo systemctl status docker
+  
+  # Check disk space
+  df -h /var/lib/docker
+  ```
+</Accordion>
+
+## Next Steps
+
+Once all prerequisites are met, proceed to [Installation](/deployment/installation).

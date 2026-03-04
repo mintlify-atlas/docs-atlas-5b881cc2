@@ -1,0 +1,546 @@
+---
+title: gNMIc Configuration
+description: Configure and use gNMIc for Nokia gNMI streaming telemetry collection
+---
+
+# gNMIc Collector
+
+gNMIc is the telemetry collector that subscribes to gNMI streams from Nokia devices and exports metrics to Prometheus.
+
+## Overview
+
+**gNMIc** (gRPC Network Management Interface client) is an open-source tool from OpenConfig that:
+
+- Establishes gRPC connections to network devices
+- Subscribes to telemetry data using gNMI protocol
+- Processes and transforms streaming data
+- Exports metrics in multiple formats (Prometheus, InfluxDB, Kafka, etc.)
+
+**Lab Configuration**:
+- **Container**: gnmic
+- **Management IP**: 10.77.1.12
+- **Metrics Port**: 9273
+- **Config File**: `configs/gnmic/config.yml`
+
+## Configuration File Structure
+
+The gNMIc configuration consists of four main sections:
+
+```yaml
+# Global device credentials
+username: admin
+password: admin
+port: 57400
+timeout: 10s
+
+# Auto-discovery via Docker
+loader:
+  type: docker
+  # ...
+
+# Telemetry subscriptions
+subscriptions:
+  # ...
+
+# Prometheus output
+outputs:
+  prom:
+    type: prometheus
+    # ...
+```
+
+## Auto-Discovery with Docker Loader
+
+The lab uses Docker auto-discovery to automatically find and configure Nokia devices:
+
+<CodeGroup>
+```yaml configs/gnmic/config.yml
+loader:
+  type: docker
+  address: unix:///var/run/docker.sock
+  filters:
+    # ─── SR Linux nodes ────────────────────────────────
+    - containers:
+        - label: clab-node-kind=nokia_srlinux
+      network:
+        label: containerlab
+      port: "57400"
+      template: |
+        name: {{ index .Labels "clab-node-name" }}
+      config:
+        username: admin
+        password: lab123
+        skip-verify: true
+        encoding: proto
+        subscriptions:
+          - srl_platform
+          - srl_apps
+          - srl_if_stats
+          - srl_if_lag_stats
+          - srl_net_instance
+          - srl_bgp_stats
+          - srl_event_handler_stats
+
+    # ─── SR OS simulator nodes ─────────────────────────
+    - containers:
+        - label: clab-node-kind=nokia_srsim
+      network:
+        label: containerlab
+      port: "57400"
+      template: |
+        name: {{ index .Labels "clab-node-name" }}
+      config:
+        username: admin
+        password: lab123
+        insecure: true
+        encoding: json
+        subscriptions:
+          - sros_ports_stats
+          - sros_router_bgp
+          - sros_router_interface
+          - sros_router_isis
+          - sros_router_route_table
+          - sros_system
+          - sros_service_stats
+          - sros_temperature_stats
+          - sros_fan_stats
+          - sros_ludb
+          - sros_vpls_sap_all
+```
+</CodeGroup>
+
+<Note>
+The loader automatically discovers all Containerlab nodes labeled with `clab-node-kind=nokia_srlinux` or `clab-node-kind=nokia_srsim` and applies the appropriate configuration.
+</Note>
+
+### Key Loader Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `type: docker` | Use Docker container discovery |
+| `address` | Docker socket path |
+| `filters` | Container selection criteria |
+| `label` | Match containers by label |
+| `port` | gNMI port (57400 for Nokia) |
+| `encoding` | `proto` for SR Linux, `json` for SROS |
+
+## Telemetry Subscriptions
+
+Subscriptions define what data to collect and how frequently.
+
+### SROS Subscriptions
+
+<Tabs>
+  <Tab title="Port Statistics">
+```yaml
+sros_ports_stats:
+  paths:
+    - /state/port/oper-state
+    - /state/port/statistics/
+    - /state/port/ethernet/statistics/
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Collects interface operational state and traffic statistics every 5 seconds.
+  </Tab>
+  
+  <Tab title="System Metrics">
+```yaml
+sros_system:
+  paths:
+    - /state/system/cpu[sample-period=1]
+    - /state/system/memory-pools/
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Monitors CPU utilization (1-second sampling) and memory pool usage.
+  </Tab>
+  
+  <Tab title="BNG Sessions">
+```yaml
+sros_ludb:
+  paths:
+    - /state/subscriber-mgmt/local-user-db[name=*]
+    - /state/subscriber-mgmt/local-user-db[name=*]/ipoe
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Tracks BNG local user database and IPoE session counts.
+  </Tab>
+  
+  <Tab title="Routing Protocols">
+```yaml
+sros_router_bgp:
+  paths:
+    - /state/router/bgp/statistics/
+    - /state/router/bgp/statistics/routes-per-family/
+    - /state/router/bgp/neighbor/statistics/
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Captures BGP statistics, route counts per address family, and neighbor metrics.
+  </Tab>
+</Tabs>
+
+### SR Linux Subscriptions
+
+<Tabs>
+  <Tab title="Platform Metrics">
+```yaml
+srl_platform:
+  paths:
+    - /platform/control[slot=*]/cpu[index=all]/total
+    - /platform/control[slot=*]/memory
+  mode: stream
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Monitors CPU and memory usage for all control slots.
+  </Tab>
+  
+  <Tab title="Interface Stats">
+```yaml
+srl_if_stats:
+  paths:
+    - /interface[name=ethernet-1/*]/statistics
+    - /interface[name=*]/subinterface[index=*]/statistics/
+    - /interface[name=ethernet-1/*]/oper-state
+    - /interface[name=ethernet-1/*]/traffic-rate
+  mode: stream
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Collects interface statistics, operational state, and traffic rates.
+  </Tab>
+  
+  <Tab title="BGP Statistics">
+```yaml
+srl_bgp_stats:
+  paths:
+    - /network-instance[name=*]/protocols/bgp/statistics
+    - /network-instance[name=*]/protocols/bgp/group[group-name=*]/statistics
+  mode: stream
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+Tracks BGP protocol statistics per network instance and peer group.
+  </Tab>
+</Tabs>
+
+### Subscription Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|----------|
+| `paths` | YANG paths to subscribe to | `/state/port/statistics/` |
+| `mode` | Subscription mode | `stream` |
+| `stream-mode` | How data is sent | `sample` (periodic) or `on-change` |
+| `sample-interval` | Polling frequency | `5s` (5 seconds) |
+
+<Note>
+**Stream modes**:
+- `sample`: Send updates at regular intervals (5s in this lab)
+- `on-change`: Send updates only when values change (not used in this lab)
+</Note>
+
+## Data Processing Pipeline
+
+gNMIc applies processors to transform telemetry data before exporting:
+
+### 1. Trim SROS Prefixes
+
+```yaml
+processors:
+  trim-sros-prefixes:
+    event-strings:
+      value-names:
+        - "^/state/.*"
+      transforms:
+        - trim-prefix:
+            apply-on: "name"
+            prefix: "/state"
+```
+
+Removes `/state` prefix from metric names:
+- `/state/port/statistics/in-packets` → `/port/statistics/in-packets`
+
+### 2. Extract Labels
+
+```yaml
+add-labels:
+  event-extract-tags:
+    value-names:
+      - /router/route-table/unicast/(?P<family>[a-zA-Z0-9-_:]+)/statistics/(?P<protocol>[a-zA-Z0-9-_:]+)/([a-zA-Z0-9-_:]+)
+      - /router/bgp/statistics/routes-per-family/(?P<family>[a-zA-Z0-9-_:]+)/([a-zA-Z0-9-_:]+)
+```
+
+Extracts labels from paths using regex:
+- Path: `/router/route-table/unicast/ipv4/statistics/bgp/active-routes`
+- Labels: `{family="ipv4", protocol="bgp"}`
+
+### 3. Convert State Values
+
+```yaml
+up-down-map:
+  event-strings:
+    value-names:
+      - oper-state
+    transforms:
+      - replace:
+          apply-on: "value"
+          old: "up"
+          new: "1"
+      - replace:
+          apply-on: "value"
+          old: "down"
+          new: "0"
+```
+
+Converts operational states to numeric values for Prometheus:
+- `up` → 1
+- `down` → 0
+
+### 4. Group by Interface
+
+```yaml
+group-by-interface:
+  event-group-by:
+    tags:
+      - interface_name
+```
+
+Groups metrics by interface name for better organization.
+
+## Prometheus Export
+
+The final step exports processed metrics in Prometheus format:
+
+```yaml
+outputs:
+  prom:
+    type: prometheus
+    listen: :9273
+    path: /metrics
+    export-timestamps: true
+    strings-as-labels: true
+    debug: false
+    event-processors:
+      - trim-sros-prefixes
+      - add-labels
+      - trim-regex
+      - group-by-interface
+      - up-down-map
+```
+
+### Export Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `listen` | `:9273` | Port for Prometheus scraping |
+| `path` | `/metrics` | HTTP endpoint path |
+| `export-timestamps` | `true` | Include metric timestamps |
+| `strings-as-labels` | `true` | Convert string values to labels |
+| `event-processors` | (list) | Processing pipeline order |
+
+### Example Metrics Output
+
+```prometheus
+# HELP port_statistics_in_packets Port ingress packet count
+# TYPE port_statistics_in_packets counter
+port_statistics_in_packets{device="bng1",port_id="1/1/c1/1"} 1234567
+
+# HELP system_cpu CPU utilization percentage
+# TYPE system_cpu gauge
+system_cpu{device="bng1",sample_period="1"} 23.5
+
+# HELP port_oper_state Port operational state (1=up, 0=down)
+# TYPE port_oper_state gauge
+port_oper_state{device="bng1",port_id="1/1/c1/1"} 1
+```
+
+## Verify gNMIc Operation
+
+### Check Container Status
+
+```bash
+# Verify gNMIc is running
+sudo docker ps | grep gnmic
+
+# Expected: Container shows as "Up"
+```
+
+### View gNMIc Logs
+
+```bash
+# Follow live logs
+sudo docker logs -f gnmic
+
+# Look for successful subscriptions:
+# "msg"="subscription initialized" "target"="bng1"
+# "msg"="subscription initialized" "target"="bng2"
+```
+
+### Test Metrics Endpoint
+
+```bash
+# Fetch metrics from gNMIc
+curl http://localhost:9273/metrics
+
+# Or from inside another container
+sudo docker exec prometheus wget -O- http://gnmic:9273/metrics | head -20
+```
+
+### Check Active Subscriptions
+
+```bash
+# View configuration
+sudo docker exec gnmic cat /gnmic-config.yml
+
+# Check discovered targets
+sudo docker exec gnmic gnmic --config /gnmic-config.yml get --target bng1 --path /
+```
+
+## Troubleshooting gNMI Connections
+
+<Accordion title="Connection refused errors">
+**Problem**: `connection refused` or `context deadline exceeded`
+
+**Solutions**:
+1. Verify device is running: `sudo docker ps | grep bng1`
+2. Check gNMI port is open:
+   ```bash
+   sudo docker exec gnmic telnet bng1 57400
+   ```
+3. Confirm credentials are correct in `config.yml`
+4. Check device gNMI is enabled (should be by default)
+</Accordion>
+
+<Accordion title="Authentication failures">
+**Problem**: `rpc error: code = Unauthenticated`
+
+**Solutions**:
+1. Verify credentials in loader config:
+   ```yaml
+   username: admin
+   password: lab123
+   ```
+2. Check device admin password hasn't changed
+3. Try connecting manually:
+   ```bash
+   gnmic -a bng1:57400 -u admin -p lab123 --insecure capabilities
+   ```
+</Accordion>
+
+<Accordion title="No metrics exported">
+**Problem**: `/metrics` endpoint returns empty or no data
+
+**Solutions**:
+1. Check subscriptions are active in logs
+2. Verify devices are sending data:
+   ```bash
+   sudo docker logs gnmic | grep "received"
+   ```
+3. Test a specific subscription:
+   ```bash
+   gnmic -a bng1:57400 -u admin -p lab123 --insecure \
+     subscribe --path /state/system/cpu
+   ```
+4. Check processor configuration isn't filtering all data
+</Accordion>
+
+<Accordion title="High CPU usage">
+**Problem**: gNMIc container consuming excessive CPU
+
+**Solutions**:
+1. Reduce subscription frequency:
+   ```yaml
+   sample-interval: 10s  # Instead of 5s
+   ```
+2. Limit subscription paths to essential metrics only
+3. Disable debug logging:
+   ```yaml
+   outputs:
+     prom:
+       debug: false
+   ```
+</Accordion>
+
+## Custom Subscription Examples
+
+### Add New SROS Subscription
+
+```yaml
+# Add to subscriptions section
+sros_vpls_sap_stats:
+  paths:
+    - /state/service/vpls[service-name=*]/sap[sap-id=*]/statistics
+  stream-mode: sample
+  sample-interval: 10s
+
+# Add to loader config for SROS nodes
+subscriptions:
+  - sros_ports_stats
+  - sros_system
+  - sros_vpls_sap_stats  # New subscription
+```
+
+### Monitor Specific Interfaces Only
+
+```yaml
+# Instead of all interfaces
+srl_if_stats:
+  paths:
+    - /interface[name=ethernet-1/1]/statistics
+    - /interface[name=ethernet-1/2]/statistics
+  mode: stream
+  stream-mode: sample
+  sample-interval: 5s
+```
+
+### Increase Sampling Frequency
+
+```yaml
+# For critical metrics, use faster sampling
+sros_critical_ports:
+  paths:
+    - /state/port[port-id=1/1/c1/1]/statistics/
+  stream-mode: sample
+  sample-interval: 1s  # Every second
+```
+
+## Configuration Best Practices
+
+<Note>
+**Performance Tips**:
+- Keep `sample-interval` at 5s or higher to avoid overwhelming devices
+- Use specific paths instead of wildcards when possible
+- Limit subscriptions to metrics you actually need
+- Use processors to reduce cardinality (unique label combinations)
+- Monitor gNMIc CPU and memory usage
+</Note>
+
+<Warning>
+**Security Considerations**:
+- Change default credentials in production
+- Use TLS certificates instead of `skip-verify: true`
+- Limit Docker socket access to trusted containers
+- Use RBAC for gNMI access control on devices
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Prometheus Setup" icon="database" href="/telemetry/prometheus">
+    Configure Prometheus to scrape gNMIc metrics
+  </Card>
+  
+  <Card title="Available Metrics" icon="list" href="/telemetry/available-metrics">
+    Browse the complete metrics catalog
+  </Card>
+</CardGroup>

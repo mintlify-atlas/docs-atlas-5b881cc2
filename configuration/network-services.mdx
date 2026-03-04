@@ -1,0 +1,555 @@
+---
+title: 'Network Services Configuration'
+description: 'DHCP, NAT, IPv4/IPv6 dual-stack, and subscriber service policies'
+---
+
+# Network Services Configuration
+
+The Nokia BNG devices provide critical network services for subscriber connectivity, including DHCP servers, Carrier-Grade NAT (CGN), and IPv4/IPv6 dual-stack support. All services are configured within VPRN 9998 (inside/subscriber-facing) and VPRN 9999 (outside/internet-facing).
+
+## Service Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                      BNG Router                          │
+│                                                          │
+│  ┌────────────────────────────────────────────────┐    │
+│  │ VPRN 9998 (Inside/Subscriber Side)             │    │
+│  │                                                 │    │
+│  │  • DHCPv4 Server (100.80.0.0/29)               │    │
+│  │  • DHCPv6 Server (2001:db8::/48)               │    │
+│  │  • Subscriber Interface "services"              │    │
+│  │  • Group Interface "gi"                         │    │
+│  │  • NAT Inside (CGN)                             │    │
+│  └────────────────────────────────────────────────┘    │
+│                         │                                │
+│                         │ NAT Translation                │
+│                         ↓                                │
+│  ┌────────────────────────────────────────────────┐    │
+│  │ VPRN 9999 (Outside/Internet Side)              │    │
+│  │                                                 │    │
+│  │  • NAT Outside Pool (99.99.99.99)              │    │
+│  │  • Interface to IPERF (172.19.1.2/30)          │    │
+│  │  • Public Internet Gateway                      │    │
+│  └────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────┘
+```
+
+## DHCP Server Configuration
+
+### DHCPv4 Server
+
+The BNG operates a DHCPv4 server to assign private IPv4 addresses to subscribers:
+
+```nokia-sros
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" admin-state enable
+
+# Pool Selection
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-gi-address
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-pool-from-client
+```
+
+#### CGNAT Address Pool
+
+```nokia-sros
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat"
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" minimum-free percent 3
+
+# DNS Servers
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option dns-server ipv4-address [8.8.8.8 8.8.4.4]
+
+# Lease Time (10 years for testing)
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option lease-time duration 315446399
+
+# Subnet Configuration
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 options option default-router ipv4-address [100.80.0.1]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 address-range 100.80.0.2 end 100.80.0.7
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 exclude-addresses 100.80.0.1 end 100.80.0.1
+```
+
+<Accordion title="DHCP Pool Details">
+**Pool Name:** cgnat
+
+**Subnet:** 100.80.0.0/29 (8 addresses)
+- Network: 100.80.0.0
+- Gateway: 100.80.0.1 (BNG)
+- Usable Range: 100.80.0.2 - 100.80.0.7 (6 addresses)
+- Broadcast: 100.80.0.7
+
+**DNS Servers:**
+- Primary: 8.8.8.8 (Google)
+- Secondary: 8.8.4.4 (Google)
+
+**Lease Duration:** 315446399 seconds (~10 years)
+
+**Minimum Free:** 3% (warning threshold)
+</Accordion>
+
+<Warning>
+The /29 subnet only provides 6 usable host addresses. In production, use larger subnets (e.g., /24, /22) to support more subscribers.
+</Warning>
+
+### DHCPv6 Server
+
+The BNG provides IPv6 addresses and prefix delegation:
+
+```nokia-sros
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-pool-from-client
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-link-address scope subnet
+```
+
+#### IPv6 Pool Configuration
+
+<Tabs>
+  <Tab title="WAN Host Addresses">
+    **Prefix:** 2001:db8:100::/56
+    
+    **Purpose:** Subscriber WAN-side IPv6 addresses
+    
+    ```nokia-sros
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 preferred-lifetime 43200
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 valid-lifetime 86400
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 renew-time 21600
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 rebind-time 36000
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type wan-host true
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type pd false
+    ```
+    
+    **Timers:**
+    - Preferred Lifetime: 43200s (12 hours)
+    - Valid Lifetime: 86400s (24 hours)
+    - Renew Time: 21600s (6 hours)
+    - Rebind Time: 36000s (10 hours)
+  </Tab>
+  
+  <Tab title="Prefix Delegation">
+    **Prefix:** 2001:db8:200::/48
+    
+    **Purpose:** Delegated prefixes for subscriber LANs
+    
+    ```nokia-sros
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 preferred-lifetime 43200
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 valid-lifetime 86400
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 renew-time 21600
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 rebind-time 36000
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type wan-host false
+    /configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type pd true
+    ```
+    
+    **Delegation Size:**
+    - Minimum: /56 (256 subnets)
+    - Maximum: /64 (single subnet)
+  </Tab>
+</Tabs>
+
+#### DHCPv6 Options
+
+```nokia-sros
+# DNS Servers
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" options option dns-server ipv6-address [2001:4860:4860::8888 2001:4860:4860::8844]
+
+# Prefix Delegation Limits
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix minimum 56
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix maximum 64
+```
+
+<Note>
+IPv6 DNS servers point to Google Public DNS (2001:4860:4860::8888 and 2001:4860:4860::8844).
+</Note>
+
+### DHCP Loopback Interface
+
+A loopback interface hosts the DHCP servers:
+
+```nokia-sros
+/configure service vprn "9998" interface "loopback" admin-state enable
+/configure service vprn "9998" interface "loopback" loopback true
+
+# IPv4 DHCP Server
+/configure service vprn "9998" interface "loopback" ipv4 local-dhcp-server "suscriptores"
+/configure service vprn "9998" interface "loopback" ipv4 primary address 9.9.9.9
+/configure service vprn "9998" interface "loopback" ipv4 primary prefix-length 32
+
+# IPv6 DHCP Server
+/configure service vprn "9998" interface "loopback" ipv6 local-dhcp-server "suscriptores_v6"
+/configure service vprn "9998" interface "loopback" ipv6 address fd07:47::aaaa prefix-length 128
+```
+
+## Carrier-Grade NAT (CGN)
+
+The BNG implements deterministic NAT44 using an Integrated Service Adapter (ISA).
+
+### ISA Configuration
+
+```nokia-sros
+/configure isa nat-group 1 admin-state enable
+/configure isa nat-group 1 redundancy active-mda-limit 1
+/configure isa nat-group 1 session-limits watermarks low 80
+/configure isa nat-group 1 session-limits watermarks high 90
+/configure isa nat-group 1 mda 2/1
+```
+
+<Accordion title="ISA Details">
+**NAT Group ID:** 1
+
+**MDA Location:** Slot 2, MDA 1 (ISA2-BB)
+
+**Active MDA Limit:** 1 (single active ISA)
+
+**Session Watermarks:**
+- Low: 80% (warning)
+- High: 90% (critical)
+
+**Purpose:** Hardware-accelerated NAT processing
+</Accordion>
+
+### NAT Outside Configuration (VPRN 9999)
+
+```nokia-sros
+/configure service vprn "9999" admin-state enable
+/configure service vprn "9999" customer "1"
+/configure service vprn "9999" autonomous-system 65520
+
+# NAT Outside Pool
+/configure service vprn "9999" nat outside pool "dtpool" admin-state enable
+/configure service vprn "9999" nat outside pool "dtpool" type large-scale
+/configure service vprn "9999" nat outside pool "dtpool" nat-group 1
+/configure service vprn "9999" nat outside pool "dtpool" mode napt
+/configure service vprn "9999" nat outside pool "dtpool" large-scale subscriber-limit 8
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic port-reservation 64
+/configure service vprn "9999" nat outside pool "dtpool" address-range 99.99.99.99 end 99.99.99.99
+```
+
+<Accordion title="NAT Pool Configuration Explained">
+**Pool Name:** dtpool
+
+**Type:** Large-scale (Carrier-Grade)
+
+**Mode:** NAPT (Network Address Port Translation)
+
+**Outside IP:** 99.99.99.99 (single public IP)
+
+**Subscriber Limit:** 8 subscribers per IP
+
+**Port Reservation:** 64 ports per subscriber
+
+**Deterministic:** Port assignments are predictable and reproducible
+
+**Total Ports Available:** 65536 ports
+- 8 subscribers × 64 ports = 512 ports allocated
+- Remaining ~65000 ports for dynamic allocation
+</Accordion>
+
+<Note>
+Deterministic NAT allows law enforcement to trace subscriber activity by timestamp and port number.
+</Note>
+
+### NAT Outside Interface
+
+```nokia-sros
+/configure service vprn "9999" interface "to_iperf" admin-state enable
+/configure service vprn "9999" interface "to_iperf" ipv4 primary address 172.19.1.2
+/configure service vprn "9999" interface "to_iperf" ipv4 primary prefix-length 30
+/configure service vprn "9999" interface "to_iperf" sap 1/1/c2/1:0 admin-state enable
+```
+
+### NAT Policy
+
+```nokia-sros
+/configure service nat nat-policy "natpol" pool router-instance "9999"
+/configure service nat nat-policy "natpol" pool name "dtpool"
+
+# Application Layer Gateways
+/configure service nat nat-policy "natpol" alg pptp true
+/configure service nat nat-policy "natpol" alg rtsp true
+/configure service nat nat-policy "natpol" alg sip true
+```
+
+<Note>
+ALGs (Application Layer Gateways) provide NAT traversal support for protocols that embed IP addresses in the payload (PPTP, RTSP, SIP).
+</Note>
+
+### NAT Inside Configuration (VPRN 9998)
+
+```nokia-sros
+/configure service vprn "9998" admin-state enable
+/configure service vprn "9998" customer "1"
+/configure service vprn "9998" management allow-ftp true
+/configure service vprn "9998" management allow-ssh true
+/configure service vprn "9998" management allow-netconf true
+/configure service vprn "9998" management allow-grpc true
+
+# Large-Scale NAT Inside
+/configure service vprn "9998" nat inside large-scale nat44 max-subscriber-limit 8
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" admin-state enable
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7 first-outside-address 99.99.99.99
+```
+
+<Accordion title="NAT Inside Configuration Breakdown">
+**Prefix Map:** 100.80.0.0/29 → 99.99.99.99
+
+**Inside Addresses:** 100.80.0.0 - 100.80.0.7 (subscriber private IPs)
+
+**Outside Address:** 99.99.99.99 (single public IP)
+
+**Max Subscribers:** 8
+
+**Deterministic Mapping:**
+- Each inside IP gets a fixed port range on 99.99.99.99
+- Port allocation is predictable and reversible
+- Enables logging and traceability
+</Accordion>
+
+### NAT IP Filter
+
+A filter ensures only private subscriber traffic is NAT'd:
+
+```nokia-sros
+/configure filter ip-filter "10" default-action accept
+
+# Allow traffic to/from NAT pool (bypass NAT)
+/configure filter ip-filter "10" entry 1 match dst-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 1 match dst-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 1 action accept
+
+# NAT all other traffic from subscriber pool
+/configure filter ip-filter "10" entry 2 match src-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 2 match src-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 2 action nat
+```
+
+<Note>
+This filter is applied to the SLA profile ingress, ensuring all subscriber traffic undergoes NAT translation.
+</Note>
+
+## Subscriber Interface Configuration
+
+The subscriber interface defines IP addressing and DHCP relay:
+
+### IPv4 Subscriber Interface
+
+```nokia-sros
+/configure service vprn "9998" subscriber-interface "services" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" wan-mode mode128
+
+# IPv4 Configuration
+/configure service vprn "9998" subscriber-interface "services" ipv4 allow-unmatching-subnets true
+/configure service vprn "9998" subscriber-interface "services" ipv4 default-dns [8.8.8.8 8.8.4.4]
+/configure service vprn "9998" subscriber-interface "services" ipv4 address 100.80.0.1
+/configure service vprn "9998" subscriber-interface "services" ipv4 address 100.80.0.1 prefix-length 29
+/configure service vprn "9998" subscriber-interface "services" ipv4 dhcp gi-address 100.80.0.1
+```
+
+### IPv6 Subscriber Interface
+
+```nokia-sros
+/configure service vprn "9998" subscriber-interface "services" ipv6 allow-unmatching-prefixes true
+/configure service vprn "9998" subscriber-interface "services" ipv6 delegated-prefix-length variable
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:100::/56 host-type wan
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:200::/48 host-type pd
+/configure service vprn "9998" subscriber-interface "services" ipv6 link-local-address address fe80::7e20:64ff:fe84:8365
+```
+
+<Note>
+The variable delegated-prefix-length allows the DHCPv6 server to assign /56 or /64 prefixes based on subscriber requirements.
+</Note>
+
+## Group Interface Configuration
+
+The group interface handles subscriber session management:
+
+```nokia-sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" radius-auth-policy "autpolicy"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ingress-stats true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" oper-up-while-empty true
+```
+
+### IPv4 Group Interface
+
+```nokia-sros
+# uRPF Check
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 urpf-check mode strict-no-ecmp
+
+# Neighbor Discovery
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 neighbor-discovery populate true
+
+# DHCP Configuration
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp server [9.9.9.9]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp trusted true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp gi-address 100.80.0.1
+
+# DHCP Proxy
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server emulated-server 100.80.0.1
+
+# Lease Populate
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp lease-populate max-leases 131071
+
+# Client Applications
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications ppp true
+```
+
+<Accordion title="DHCP Configuration Explained">
+**DHCP Server:** 9.9.9.9 (loopback interface)
+
+**GI Address:** 100.80.0.1 (gateway inserted in DHCP responses)
+
+**Proxy Mode:** Enabled - BNG intercepts DHCP messages
+
+**Emulated Server:** 100.80.0.1 (IP used in DHCP server identifier option)
+
+**Max Leases:** 131071 (maximum subscribers)
+
+**Client Applications:** DHCP and PPP (IPoE and PPPoE)
+
+**uRPF Check:** Strict mode prevents IP spoofing
+</Accordion>
+
+### IPv6 Group Interface
+
+```nokia-sros
+# uRPF Check
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 urpf-check mode strict-no-ecmp
+
+# DHCPv6 Relay
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 pd-managed-route
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay link-address 2001:db8:100::
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay server ["fd07:47::aaaa"]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications ppp true
+
+# DHCPv6 Proxy
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 proxy-server admin-state enable
+
+# Router Advertisements
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options other-stateful-configuration true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options managed-configuration true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements prefix-options autonomous false
+```
+
+<Note>
+Router Advertisements are configured for managed configuration (M=1, O=1), directing subscribers to use DHCPv6 for address and option configuration.
+</Note>
+
+### IPoE Session Configuration
+
+```nokia-sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session ipoe-session-policy "ipoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session user-db "clientes"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session sap-session-limit 131071
+```
+
+### PPPoE Session Configuration
+
+```nokia-sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe policy "pppoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe sap-session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe user-db "clientes"
+```
+
+## Subscriber Service Profiles
+
+Service profiles define subscriber parameters and are applied via RADIUS or local configuration.
+
+### SLA Profile (100M)
+
+See [BNG Devices Configuration](/configuration/bng-devices#sla-profile) for full SLA profile details.
+
+**Key Parameters:**
+- Bandwidth: 100 Mbps (PIR/CIR)
+- Host Limits: 1 IPv4, 1 IPv6 WAN, 1 IPv6 PD
+- NAT Filter: IP filter "10" for CGN
+- QoS: Ingress/Egress policy "10"
+
+### Subscriber Profile
+
+See [BNG Devices Configuration](/configuration/bng-devices#subscriber-profile) for subscriber profile configuration.
+
+**Key Parameters:**
+- Accounting: RADIUS policy "accounting"
+- Interim Updates: Every 720 seconds
+- Optimized Stop: Enabled
+
+## Dual-Stack Operation
+
+<Tabs>
+  <Tab title="IPv4">
+    **Private Addressing:** 100.80.0.0/29 (CGNAT pool)
+    
+    **NAT Translation:** Deterministic NAT44 to 99.99.99.99
+    
+    **DNS:** 8.8.8.8, 8.8.4.4
+    
+    **DHCP:** Server on 9.9.9.9
+    
+    **Gateway:** 100.80.0.1
+  </Tab>
+  
+  <Tab title="IPv6">
+    **WAN Addresses:** 2001:db8:100::/56
+    
+    **Prefix Delegation:** 2001:db8:200::/48 (delegated as /56 or /64)
+    
+    **DNS:** 2001:4860:4860::8888, 2001:4860:4860::8844
+    
+    **DHCPv6:** Server on fd07:47::aaaa
+    
+    **Link-Local:** fe80::7e20:64ff:fe84:8365
+    
+    **Router Advertisements:** Enabled (Managed mode)
+  </Tab>
+</Tabs>
+
+## Traffic Flow Diagram
+
+```
+Subscriber ONT (100.80.0.2)
+        |
+        | Private IPv4: 100.80.0.2
+        ↓
+   BNG VPRN 9998
+   Group Interface "gi"
+   (100.80.0.1)
+        |
+        | NAT Filter applied
+        | NAT Policy "natpol"
+        ↓
+   ISA NAT Group 1
+   (NAT44 Translation)
+        |
+        | Public IPv4: 99.99.99.99:xxxxx
+        ↓
+   BNG VPRN 9999
+   NAT Outside Pool "dtpool"
+        |
+        | Interface to_iperf
+        | 172.19.1.2/30
+        ↓
+    Internet Gateway
+    (172.19.1.1)
+```
+
+## Configuration Files
+
+The complete network services configuration is embedded within:
+- **BNG1**: `configs/sros/config-bng.txt` (lines 578-763)
+- **BNG2**: `configs/sros/config-bng-2.txt` (identical services)
+
+## Related Topics
+
+- [BNG Router Configuration](/configuration/bng-devices)
+- [RADIUS Server Configuration](/configuration/radius)
+- [OLT and ONT Configuration](/configuration/olt-ont)

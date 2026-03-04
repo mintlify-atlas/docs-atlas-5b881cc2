@@ -1,0 +1,463 @@
+---
+title: Installation
+description: Step-by-step installation guide for Nokia BNG Lab
+---
+
+This guide walks you through deploying the complete Nokia BNG Lab environment.
+
+## Overview
+
+The installation process involves:
+
+1. Obtaining the lab repository
+2. Setting up Nokia licenses
+3. Preparing Docker images
+4. Deploying the lab with Containerlab
+5. Verifying the deployment
+
+<Info>
+Expected deployment time: **10-15 minutes** (depending on your internet connection and system performance)
+</Info>
+
+## Step 1: Clone the Repository
+
+<Steps>
+  <Step title="Clone from GitHub">
+    Download the lab repository:
+    
+    ```bash
+    git clone https://github.com/abelperezr/nokia-bng-lab.git
+    cd nokia-bng-lab
+    ```
+  </Step>
+  
+  <Step title="Verify Repository Contents">
+    Check that all essential files are present:
+    
+    ```bash
+    ls -la
+    ```
+    
+    You should see:
+    - `lab.yml` - Main topology file
+    - `configs/` - Configuration directory
+    - `README.md` - Documentation
+  </Step>
+</Steps>
+
+<Accordion title="Alternative: Download as ZIP">
+  If you don't have Git installed:
+  
+  ```bash
+  # Using curl
+  curl -L https://github.com/abelperezr/nokia-bng-lab/archive/refs/heads/main.zip -o nokia-bng-lab.zip
+  unzip nokia-bng-lab.zip
+  cd nokia-bng-lab-main
+  
+  # Using wget
+  wget https://github.com/abelperezr/nokia-bng-lab/archive/refs/heads/main.zip
+  unzip main.zip
+  cd nokia-bng-lab-main
+  ```
+</Accordion>
+
+## Step 2: License Setup
+
+<Warning>
+The Nokia SR-SIM license is **mandatory**. The lab will not start without it.
+</Warning>
+
+<Steps>
+  <Step title="Create License Directory">
+    ```bash
+    mkdir -p configs/license
+    ```
+  </Step>
+  
+  <Step title="Copy License File">
+    Place your Nokia SR-SIM license file in the correct location:
+    
+    ```bash
+    cp /path/to/your/SR_SIM_license.txt configs/license/
+    ```
+    
+    <Note>
+    The license file must be named exactly `SR_SIM_license.txt`
+    </Note>
+  </Step>
+  
+  <Step title="Verify License File">
+    ```bash
+    ls -lh configs/license/SR_SIM_license.txt
+    ```
+    
+    The file should exist and have a non-zero size.
+  </Step>
+</Steps>
+
+<Accordion title="License File Requirements">
+  The SR-SIM license must support:
+  
+  - **Platforms**: SR-7, IXR-ec
+  - **Features**: BNG functionality, ISA cards
+  - **Nodes**: At least 4 nodes (2x BNG, 1x Switch, 1x OLT)
+  
+  Contact Nokia support if your license doesn't include these features.
+</Accordion>
+
+## Step 3: Prepare Docker Images
+
+### Nokia SR OS Image
+
+<Steps>
+  <Step title="Import Nokia SR OS Image">
+    Import the Nokia SR OS 25.10.R2 image:
+    
+    ```bash
+    # Import from TAR file
+    docker import /path/to/sros-25.10.R2.tar localhost/nokia/srsim:25.10.R2
+    ```
+  </Step>
+  
+  <Step title="Verify SR OS Image">
+    ```bash
+    docker images | grep nokia/srsim
+    ```
+    
+    Expected output:
+    ```
+    localhost/nokia/srsim    25.10.R2    <image_id>    <time>    <size>
+    ```
+  </Step>
+</Steps>
+
+### Nokia SR Linux Image
+
+<Steps>
+  <Step title="Pull SR Linux Image">
+    ```bash
+    docker pull ghcr.io/nokia/srlinux:25.10
+    ```
+  </Step>
+</Steps>
+
+### Public Container Images
+
+<Info>
+These images will be pulled automatically during deployment, but you can pre-pull them to speed up the process.
+</Info>
+
+```bash
+# Optional: Pre-pull all required images
+docker pull ghcr.io/abelperezr/ont-ds:0.2
+docker pull ghcr.io/srl-labs/network-multitool
+docker pull ghcr.io/openconfig/gnmic:latest
+docker pull prom/prometheus
+docker pull grafana/grafana:10.3.5
+```
+
+## Step 4: Deploy the Lab
+
+<Warning>
+Containerlab requires **root privileges** or sudo access.
+</Warning>
+
+<Steps>
+  <Step title="Start Deployment">
+    Deploy the complete lab topology:
+    
+    ```bash
+    sudo containerlab deploy -t lab.yml
+    ```
+    
+    <Info>
+    This command will:
+    - Create the management network (10.77.1.0/24)
+    - Pull missing Docker images
+    - Start all containers in the correct order
+    - Apply startup configurations
+    - Configure interfaces and links
+    </Info>
+  </Step>
+  
+  <Step title="Monitor Deployment Progress">
+    You'll see output like:
+    
+    ```
+    INFO[0000] Containerlab v0.50.0 started                 
+    INFO[0000] Parsing & checking topology file: lab.yml    
+    INFO[0001] Creating docker network: Name='lab', IPv4Subnet='10.77.1.0/24'
+    INFO[0001] Creating lab directory: /root/clab-lab       
+    INFO[0002] Creating container: bng1                     
+    INFO[0003] Creating container: bng2                     
+    INFO[0004] Creating container: switch                   
+    ...
+    ```
+  </Step>
+</Steps>
+
+### What Happens During Deployment
+
+<Accordion title="Network Creation">
+  Containerlab creates a Docker bridge network:
+  
+  - **Network name**: `lab`
+  - **Subnet**: `10.77.1.0/24`
+  - **Management IPs**: Pre-assigned to each node (10.77.1.2 - 10.77.1.17)
+</Accordion>
+
+<Accordion title="Container Startup">
+  All containers start in this order:
+  
+  1. **Network nodes** (BNG1, BNG2, Switch, OLT, TX)
+  2. **Client devices** (ONT1, ONT2, PC1, iPerf)
+  3. **Infrastructure services** (RADIUS, gNMIc, Prometheus, Grafana)
+  
+  Each node:
+  - Loads its startup configuration
+  - Configures network interfaces
+  - Establishes management connectivity
+</Accordion>
+
+<Accordion title="Configuration Application">
+  Startup configurations are automatically applied from:
+  
+  - `configs/sros/config-bng.txt` → BNG1
+  - `configs/sros/config-bng-2.txt` → BNG2
+  - `configs/switch/switch.txt` → Switch
+  - `configs/olt/olt.txt` → OLT
+  - `configs/switch/srl.txt` → TX (SRLinux)
+</Accordion>
+
+<Accordion title="Telemetry Stack Initialization">
+  The telemetry stack components start automatically:
+  
+  1. **gNMIc** connects to all Nokia nodes and subscribes to metrics
+  2. **Prometheus** begins scraping metrics from gNMIc
+  3. **Grafana** loads pre-configured dashboards and connects to Prometheus
+</Accordion>
+
+## Step 5: Verify Deployment Success
+
+<Steps>
+  <Step title="Check Lab Status">
+    ```bash
+    sudo containerlab inspect -t lab.yml
+    ```
+    
+    This shows all nodes with their management IPs and connection status.
+  </Step>
+  
+  <Step title="Verify All Containers Running">
+    ```bash
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    ```
+    
+    All containers should show status `Up`.
+  </Step>
+  
+  <Step title="Check Network Connectivity">
+    ```bash
+    # Ping BNG1 management IP
+    docker exec -it clab-lab-bng1 sr_cli "ping 10.77.1.1 count 3"
+    ```
+  </Step>
+</Steps>
+
+## Deployment Time Breakdown
+
+| Phase | Duration | Notes |
+|-------|----------|-------|
+| Image pull | 3-5 min | Only first time or when images are missing |
+| Network creation | 10 sec | Creates Docker bridge |
+| Container startup | 2-3 min | Nokia nodes take longest to boot |
+| Configuration load | 2-3 min | BNG nodes apply full config |
+| Service initialization | 1-2 min | RADIUS, telemetry services start |
+| **Total** | **10-15 min** | Varies by system performance |
+
+<Note>
+Subsequent deployments are faster since images are already cached locally.
+</Note>
+
+## Post-Deployment Configuration
+
+### ONT Devices Setup
+
+The ONT devices require manual IPv6 DHCPv6 PD setup:
+
+<Steps>
+  <Step title="Configure ONT1 (IPoE)">
+    ```bash
+    docker exec -it clab-lab-ont1 /home/user/start-dhcp6-pd.sh eth1.150 eth2 &
+    ```
+  </Step>
+  
+  <Step title="Configure ONT2 (PPPoE)">
+    ```bash
+    docker exec -it clab-lab-ont2 /home/user/start-dhcp6-pd.sh eth1.150 eth2 &
+    ```
+  </Step>
+</Steps>
+
+### Access Services
+
+Once deployed, you can access:
+
+<Accordion title="Network Devices">
+  ```bash
+  # BNG1
+  ssh admin@localhost -p 56661
+  # Password: lab123
+  
+  # BNG2
+  ssh admin@localhost -p 56664
+  # Password: lab123
+  
+  # Switch
+  ssh admin@localhost -p 56667
+  # Password: lab123
+  
+  # OLT
+  ssh admin@localhost -p 56678
+  # Password: lab123
+  ```
+</Accordion>
+
+<Accordion title="Monitoring Services">
+  - **Grafana**: http://localhost:3030
+    - Username: `admin`
+    - Password: `admin`
+  
+  - **Prometheus**: http://localhost:9090
+    - No authentication required
+</Accordion>
+
+<Accordion title="Client Devices">
+  ```bash
+  # ONT1
+  ssh user@localhost -p 56673
+  # Password: test
+  
+  # ONT2
+  ssh user@localhost -p 56674
+  # Password: test
+  
+  # PC1
+  ssh root@localhost -p 56677
+  ```
+</Accordion>
+
+## Troubleshooting Installation
+
+<Accordion title="License Error">
+  **Error**: `failed to load license file`
+  
+  **Solution**:
+  ```bash
+  # Verify license file location and name
+  ls -lh configs/license/SR_SIM_license.txt
+  
+  # Check file permissions
+  chmod 644 configs/license/SR_SIM_license.txt
+  
+  # Verify license content (should not be empty)
+  wc -l configs/license/SR_SIM_license.txt
+  ```
+</Accordion>
+
+<Accordion title="Image Not Found">
+  **Error**: `failed to pull image localhost/nokia/srsim:25.10.R2`
+  
+  **Solution**:
+  ```bash
+  # Check if image exists
+  docker images | grep nokia/srsim
+  
+  # Re-import if missing
+  docker import /path/to/sros-25.10.R2.tar localhost/nokia/srsim:25.10.R2
+  ```
+</Accordion>
+
+<Accordion title="Port Already in Use">
+  **Error**: `bind: address already in use`
+  
+  **Solution**:
+  ```bash
+  # Find process using the port
+  sudo netstat -tulpn | grep <port_number>
+  
+  # Option 1: Stop the conflicting service
+  sudo systemctl stop <service_name>
+  
+  # Option 2: Edit lab.yml and change port mappings
+  # Example: Change 3030:3000 to 3031:3000
+  ```
+</Accordion>
+
+<Accordion title="Container Fails to Start">
+  **Error**: Container exits immediately or fails health check
+  
+  **Solution**:
+  ```bash
+  # Check container logs
+  docker logs clab-lab-<node_name>
+  
+  # Check system resources
+  free -h
+  df -h
+  
+  # Restart specific container
+  sudo containerlab deploy -t lab.yml --reconfigure
+  ```
+</Accordion>
+
+<Accordion title="Network Not Created">
+  **Error**: `network lab not found`
+  
+  **Solution**:
+  ```bash
+  # Manually create network
+  docker network create \
+    --subnet=10.77.1.0/24 \
+    --gateway=10.77.1.1 \
+    lab
+  
+  # Verify network
+  docker network inspect lab
+  
+  # Retry deployment
+  sudo containerlab deploy -t lab.yml
+  ```
+</Accordion>
+
+## Stopping the Lab
+
+To stop and remove all lab components:
+
+```bash
+sudo containerlab destroy -t lab.yml
+```
+
+<Warning>
+This will:
+- Stop all containers
+- Remove all containers
+- Remove the management network
+- **Preserve** configuration files and logs in `clab-lab/` directory
+</Warning>
+
+<Accordion title="Complete Cleanup">
+  To remove all lab data including saved states:
+  
+  ```bash
+  # Destroy lab
+  sudo containerlab destroy -t lab.yml --cleanup
+  
+  # Remove lab directory
+  sudo rm -rf clab-lab/
+  ```
+</Accordion>
+
+## Next Steps
+
+Proceed to [Verification](/deployment/verification) to test your deployment and ensure everything is working correctly.

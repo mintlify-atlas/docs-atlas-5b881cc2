@@ -1,0 +1,570 @@
+---
+title: Grafana Dashboards
+description: Access and customize Grafana dashboards for Nokia BNG telemetry visualization
+---
+
+# Grafana Dashboards
+
+Grafana provides rich visualization and monitoring capabilities for the Nokia BNG Lab telemetry data.
+
+## Overview
+
+**Grafana** is an open-source analytics and visualization platform:
+
+- Create interactive dashboards
+- Query Prometheus datasource
+- Set up alerts and notifications
+- Share dashboards with teams
+- Support for multiple datasources
+
+**Lab Configuration**:
+- **Container**: grafana
+- **Management IP**: 10.77.1.14
+- **Web UI Port**: 3030 (mapped from 3000)
+- **Version**: 10.3.5
+- **Default Credentials**: admin/admin
+
+## Accessing Grafana
+
+### Web Interface
+
+```
+http://localhost:3030
+```
+
+<Note>
+**Anonymous access is enabled** - you can view dashboards without logging in. To edit dashboards or access admin features, log in with **admin/admin**.
+</Note>
+
+### Authentication Settings
+
+Configured in `lab.yml`:
+
+```yaml
+env:
+  GF_ORG_ROLE: "Editor"              # Anonymous users are Editors
+  GF_AUTH_ANONYMOUS_ENABLED: "true"  # Enable anonymous access
+  GF_AUTH_ANONYMOUS: "true"
+  GF_SECURITY_ADMIN_PASSWORD: admin  # Admin password
+```
+
+## Pre-configured Dashboards
+
+The lab includes two production-ready dashboards:
+
+### Dashboard Provisioning
+
+<CodeGroup>
+```yaml configs/grafana/dashboards.yml
+apiVersion: 1
+
+providers:
+  - name: telemetry
+    type: file
+    updateIntervalSeconds: 10
+    allowUiUpdates: false           # Dashboards are read-only
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
+```
+</CodeGroup>
+
+Dashboards are automatically loaded from `configs/grafana/dashboards/` at startup.
+
+<Warning>
+**Note**: `allowUiUpdates: false` means dashboard changes in the UI are not persisted. To modify dashboards permanently, edit the JSON files and restart Grafana.
+</Warning>
+
+### 1. SROS Dashboard
+
+**File**: `configs/grafana/dashboards/SROS-Dashboard.json`  
+**Devices**: BNG1, BNG2 (Nokia SROS routers)
+
+<Tabs>
+  <Tab title="System Status">
+**CPU and Memory Monitoring**
+
+- CPU utilization per device
+- Memory pool usage
+- System health indicators
+- Temperature and fan speeds
+
+Panels display real-time resource consumption with color-coded thresholds.
+</Tab>
+  
+  <Tab title="Port Statistics">
+**Interface Traffic and State**
+
+- Ingress/egress packet rates
+- Bytes transferred
+- Operational state (up/down)
+- Error counters
+- Port utilization graphs
+
+Filtered by device and port ID for detailed analysis.
+</Tab>
+  
+  <Tab title="BNG Sessions">
+**Subscriber Management**
+
+- Active IPoE sessions
+- Local user database statistics
+- Session state (setup, established, teardown)
+- VPLS SAP statistics
+
+Critical for monitoring broadband subscriber connectivity.
+</Tab>
+  
+  <Tab title="Routing Protocols">
+**BGP and ISIS Metrics**
+
+- BGP neighbor state
+- Route counts per address family
+- ISIS adjacencies
+- Routing table statistics
+</Tab>
+</Tabs>
+
+### 2. SR Linux Dashboard
+
+**File**: `configs/grafana/dashboards/srlinux-telemetry-lite.json`  
+**Devices**: Switch, OLT, TX (Nokia SR Linux devices)
+
+<Tabs>
+  <Tab title="Platform Metrics">
+**Hardware Resource Usage**
+
+- Control plane CPU per slot
+- Memory consumption
+- Application status
+- System processes
+</Tab>
+  
+  <Tab title="Interface Statistics">
+**Ethernet Port Metrics**
+
+- Traffic rates (bps, pps)
+- Subinterface statistics
+- LAG/LACP status
+- Interface operational state
+</Tab>
+  
+  <Tab title="Network Instances">
+**Virtual Routing and Forwarding**
+
+- Network instance operational state
+- Route table statistics
+- BGP protocol statistics per VRF
+</Tab>
+</Tabs>
+
+## Datasource Configuration
+
+Prometheus is pre-configured as the default datasource:
+
+<CodeGroup>
+```yaml configs/grafana/datasource.yml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+
+  - name: Loki
+    type: loki
+    url: http://loki:3100
+    uid: loki
+```
+</CodeGroup>
+
+### Verify Datasource
+
+1. Navigate to **Configuration** (gear icon) → **Data Sources**
+2. Select **Prometheus**
+3. Scroll to bottom and click **Save & Test**
+4. Should show: "Data source is working"
+
+<Note>
+**Loki** is configured but not deployed in the lab by default. It can be used for log aggregation if added to the topology.
+</Note>
+
+## Navigating Dashboards
+
+### Dashboard Layout
+
+Each dashboard consists of:
+
+- **Variables**: Dropdown filters (device, port, etc.)
+- **Rows**: Collapsible sections grouping related panels
+- **Panels**: Individual visualizations (graphs, gauges, tables)
+- **Time Range**: Selector in top-right corner
+
+### Using Variables
+
+Dashboards include template variables for filtering:
+
+```
+Device: [ bng1 ▼ ]    Port: [ All ▼ ]    Interval: [ 5m ▼ ]
+```
+
+**Variables update all panels** when changed, allowing you to:
+- Focus on a specific device
+- Filter by interface
+- Adjust aggregation interval
+
+### Time Range Selection
+
+Click the time picker (top-right) to select:
+
+- **Quick ranges**: Last 5m, 15m, 1h, 6h, 24h, 7d, 30d
+- **Custom range**: Absolute start and end times
+- **Refresh interval**: Auto-refresh every 5s, 10s, 30s, etc.
+
+Example: "Last 1 hour" with "10s refresh"
+
+### Zoom and Pan
+
+- **Zoom in**: Click and drag on a graph
+- **Zoom out**: Double-click graph
+- **Pan**: Shift + click and drag
+- **Reset zoom**: Click "Reset zoom" button
+
+## Creating Custom Dashboards
+
+<Note>
+Due to `allowUiUpdates: false`, custom dashboards created in the UI are temporary. For permanent dashboards, export JSON and add to `configs/grafana/dashboards/`.
+</Note>
+
+### Create New Dashboard
+
+1. Click **+ (plus)** → **Dashboard** → **Add new panel**
+2. Select **Prometheus** as datasource
+3. Enter PromQL query
+4. Configure visualization options
+5. Save panel and dashboard
+
+### Example: CPU Usage Panel
+
+<Tabs>
+  <Tab title="Query">
+```promql
+# Query builder or code mode
+system_cpu{device="bng1"}
+```
+
+Or with aggregation:
+```promql
+avg by (device) (system_cpu)
+```
+</Tab>
+  
+  <Tab title="Visualization">
+**Panel Type**: Time series
+
+**Options**:
+- Legend: `{{device}}`
+- Y-axis: Percent (0-100)
+- Thresholds: Yellow at 70%, Red at 85%
+- Fill opacity: 20%
+</Tab>
+  
+  <Tab title="Panel Settings">
+**Title**: CPU Utilization
+
+**Description**: Real-time CPU usage per device
+
+**Repeat options**: Repeat by variable `$device` (optional)
+</Tab>
+</Tabs>
+
+### Example: Interface Traffic Panel
+
+<CodeGroup>
+```promql Ingress Traffic
+# Bits per second
+rate(port_statistics_in_octets{device="$device"}[5m]) * 8
+```
+
+```promql Egress Traffic
+# Bits per second (negative for clarity)
+-rate(port_statistics_out_octets{device="$device"}[5m]) * 8
+```
+</CodeGroup>
+
+**Visualization**: Graph with:
+- Ingress (positive) above X-axis
+- Egress (negative) below X-axis
+- Legend: `{{port_id}} In/Out`
+
+### Example: Session Count Gauge
+
+```promql
+sum(subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+```
+
+**Visualization**: Gauge
+- Min: 0
+- Max: 1000 (or expected max sessions)
+- Thresholds: Green (0-500), Yellow (500-800), Red (800-1000)
+
+## Dashboard Variables
+
+Create dynamic dashboards with variables:
+
+### Add Variable
+
+1. Dashboard Settings (gear icon) → **Variables** → **Add variable**
+2. Configure variable:
+
+**Name**: `device`  
+**Type**: Query  
+**Datasource**: Prometheus  
+**Query**:
+```promql
+label_values(system_cpu, device)
+```
+
+3. Use in panels: `{device="$device"}`
+
+### Variable Examples
+
+<CodeGroup>
+```promql Device List
+label_values(system_cpu, device)
+# Returns: bng1, bng2, switch, olt
+```
+
+```promql Port List
+label_values(port_statistics_in_packets{device="$device"}, port_id)
+# Returns ports for selected device
+```
+
+```promql Interval Options
+# Custom values
+1m, 5m, 10m, 30m, 1h
+```
+</CodeGroup>
+
+## Dashboard Best Practices
+
+<Accordion title="Organize with Rows">
+Group related panels into collapsible rows:
+
+- **System Health**: CPU, memory, temperature
+- **Interface Statistics**: Traffic, errors, state
+- **Protocol Status**: BGP, ISIS, OSPF
+- **BNG Metrics**: Sessions, RADIUS, subscribers
+
+Rows improve dashboard navigation and load performance.
+</Accordion>
+
+<Accordion title="Use Consistent Time Ranges">
+Ensure all panels use the same time range:
+
+- Don't override panel time ranges unless necessary
+- Use dashboard-level time picker
+- Consider adding "Last updated" timestamp panel
+</Accordion>
+
+<Accordion title="Set Appropriate Refresh Rates">
+Balance freshness vs. load:
+
+- **5s refresh**: Real-time monitoring, troubleshooting
+- **30s refresh**: Active monitoring
+- **1m+ refresh**: Historical analysis
+- **Off**: Manual refresh for exploration
+</Accordion>
+
+<Accordion title="Add Context with Annotations">
+Display events on graphs:
+
+- Deployments
+- Configuration changes
+- Incidents
+- Maintenance windows
+
+Requires annotation datasource (not included in lab).
+</Accordion>
+
+<Accordion title="Leverage Variables for Reusability">
+Create one dashboard for all devices:
+
+- Use `$device` variable in all queries
+- Add "All" option for overview panels
+- Chain variables: `$device` → `$port`
+</Accordion>
+
+## Exporting Dashboards
+
+To make custom dashboards permanent:
+
+### 1. Export from UI
+
+1. Open dashboard
+2. Click **Share** icon (top-right) → **Export**
+3. Select **Save to file**
+4. Download JSON file
+
+### 2. Add to Lab
+
+```bash
+# Copy to dashboards directory
+cp ~/Downloads/my-dashboard.json \
+  configs/grafana/dashboards/my-dashboard.json
+
+# Restart Grafana to load dashboard
+sudo docker restart grafana
+```
+
+### 3. Version Control
+
+```bash
+# Commit to git
+cd nokia-bng-lab
+git add configs/grafana/dashboards/my-dashboard.json
+git commit -m "Add custom BNG monitoring dashboard"
+```
+
+## Alerting
+
+Grafana supports alerting on metric thresholds:
+
+### Create Alert
+
+1. Edit panel → **Alert** tab
+2. Create alert rule
+3. Define conditions:
+
+```
+WHEN avg() OF query(A, 5m, now) IS ABOVE 80
+```
+
+4. Configure notification channels (email, Slack, webhook)
+
+### Example Alert: High CPU
+
+**Condition**:
+```promql
+avg(system_cpu{device="bng1"}) > 85
+```
+
+**For**: 5 minutes  
+**Message**: "BNG1 CPU utilization above 85% for 5 minutes"
+
+<Note>
+Alerting requires notification channels to be configured in Grafana. This is not pre-configured in the lab.
+</Note>
+
+## Troubleshooting
+
+<Accordion title="Dashboard shows 'No Data'">
+**Causes**:
+1. Prometheus datasource not connected
+2. No metrics matching query
+3. Time range has no data
+4. PromQL syntax error
+
+**Solutions**:
+- Test datasource connection
+- Verify query in Prometheus UI first
+- Check time range includes recent data
+- Review panel query for errors (red underline)
+</Accordion>
+
+<Accordion title="Dashboards not loading after changes">
+**Problem**: Modified JSON files not reflected in Grafana
+
+**Solutions**:
+1. Restart Grafana container:
+   ```bash
+   sudo docker restart grafana
+   ```
+
+2. Check file permissions:
+   ```bash
+   ls -la configs/grafana/dashboards/
+   ```
+
+3. Verify provisioning config:
+   ```bash
+   sudo docker exec grafana \
+     cat /etc/grafana/provisioning/dashboards/dashboards.yaml
+   ```
+</Accordion>
+
+<Accordion title="Variables not populating">
+**Problem**: Variable dropdown shows "No options"
+
+**Solutions**:
+- Ensure query returns values in Prometheus
+- Check datasource is selected for variable
+- Verify label name matches metric (case-sensitive)
+- Test query in Explore page first
+</Accordion>
+
+<Accordion title="Slow dashboard loading">
+**Problem**: Dashboard takes long time to render
+
+**Solutions**:
+- Reduce time range (e.g., 1h instead of 7d)
+- Decrease number of panels per row
+- Simplify PromQL queries (remove regex, use specific labels)
+- Increase scrape/sample interval
+- Use recording rules in Prometheus for expensive queries
+</Accordion>
+
+## Dashboard Examples
+
+### Subscriber Overview Dashboard
+
+**Purpose**: Monitor BNG subscriber sessions
+
+**Panels**:
+1. **Total Active Sessions** (Stat)
+   ```promql
+   sum(subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+   ```
+
+2. **Sessions per BNG** (Bar gauge)
+   ```promql
+   sum by (device) (subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+   ```
+
+3. **Session History** (Time series)
+   ```promql
+   subscriber_mgmt_local_user_db_ipoe_session_stats_current{device=~"$device"}
+   ```
+
+### Network Health Dashboard
+
+**Purpose**: Overall lab health monitoring
+
+**Rows**:
+1. **Device Status**: CPU, memory, uptime
+2. **Interface Status**: Operational state, error rates
+3. **Protocol Health**: BGP neighbors, route counts
+
+### Capacity Planning Dashboard
+
+**Purpose**: Identify resource constraints
+
+**Panels**:
+1. CPU trend over 7 days
+2. Memory growth rate
+3. Interface utilization percentiles (p50, p95, p99)
+4. Session growth forecast
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Available Metrics" icon="list" href="/telemetry/available-metrics">
+    Browse all metrics for dashboard queries
+  </Card>
+  
+  <Card title="Dashboard Guide" icon="book" href="/telemetry/dashboards">
+    Detailed guide to using pre-built dashboards
+  </Card>
+</CardGroup>

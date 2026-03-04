@@ -1,0 +1,724 @@
+---
+title: Troubleshooting
+description: Common issues, solutions, and debugging procedures
+---
+
+This guide covers common operational issues and provides step-by-step troubleshooting procedures for the Nokia BNG lab.
+
+## Container Status Issues
+
+### Check Overall Lab Status
+
+<Steps>
+  <Step title="Verify Lab Deployment">
+    ```bash
+    sudo containerlab inspect -t lab.yml
+    ```
+    
+    This shows all containers, their status, and IP addresses.
+  </Step>
+
+  <Step title="Check Container Health">
+    ```bash
+    docker ps -a | grep clab-lab
+    ```
+    
+    Look for:
+    - **Status**: Should be "Up" for all containers
+    - **Restart count**: Should be 0 or low
+  </Step>
+
+  <Step title="Identify Failed Containers">
+    ```bash
+    # Show only stopped containers
+    docker ps -a --filter "status=exited" | grep clab-lab
+    
+    # Show containers that are restarting
+    docker ps -a --filter "status=restarting" | grep clab-lab
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Container Won't Start">
+  **Symptoms**: Container immediately exits or restarts continuously
+  
+  **Diagnosis**:
+  ```bash
+  # View container logs
+  docker logs clab-lab-<container-name>
+  
+  # Check last 50 lines with timestamps
+  docker logs --tail 50 -t clab-lab-<container-name>
+  
+  # Follow logs in real-time
+  docker logs -f clab-lab-<container-name>
+  ```
+  
+  **Common Causes**:
+  1. Missing or invalid license file (Nokia devices)
+  2. Configuration file errors
+  3. Port conflicts
+  4. Insufficient system resources
+  
+  **Solutions**:
+  ```bash
+  # Restart specific container
+  docker restart clab-lab-<container-name>
+  
+  # Force recreate container
+  sudo containerlab destroy -t lab.yml --cleanup
+  sudo containerlab deploy -t lab.yml
+  ```
+</Accordion>
+
+<Accordion title="Check Container Resource Usage">
+  ```bash
+  # View resource consumption
+  docker stats clab-lab-bng1
+  
+  # Check all containers
+  docker stats $(docker ps --format '{{.Names}}' | grep clab-lab)
+  ```
+  
+  <Warning>
+  Nokia SR OS containers typically require:
+  - **CPU**: 2+ cores
+  - **Memory**: 4-8 GB per BNG instance
+  - **Storage**: 10+ GB available
+  </Warning>
+</Accordion>
+
+## Connectivity Issues
+
+### Management Network Connectivity
+
+<Steps>
+  <Step title="Verify Management Network">
+    ```bash
+    docker network inspect lab
+    ```
+    
+    Confirm:
+    - Subnet: `10.77.1.0/24`
+    - All containers are attached
+  </Step>
+
+  <Step title="Test Inter-Container Connectivity">
+    ```bash
+    # Ping from BNG1 to Grafana
+    docker exec clab-lab-bng1 ping -c 3 10.77.1.14
+    
+    # Ping from Grafana to Prometheus
+    docker exec clab-lab-grafana ping -c 3 10.77.1.13
+    
+    # Ping from gNMIc to BNG devices
+    docker exec clab-lab-gnmic ping -c 3 10.77.1.2
+    docker exec clab-lab-gnmic ping -c 3 10.77.1.3
+    ```
+  </Step>
+
+  <Step title="Verify DNS Resolution">
+    ```bash
+    # Check if container names resolve
+    docker exec clab-lab-grafana ping -c 2 prometheus
+    docker exec clab-lab-prometheus ping -c 2 gnmic
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Cannot Access Services from Host">
+  **Symptoms**: Cannot reach Grafana (localhost:3030) or SSH (localhost:56661)
+  
+  **Diagnosis**:
+  ```bash
+  # Check if ports are listening
+  netstat -tuln | grep -E '(3030|9090|56661|56664)'
+  
+  # Or using ss
+  ss -tuln | grep -E '(3030|9090|56661|56664)'
+  
+  # Verify Docker port mappings
+  docker port clab-lab-grafana
+  docker port clab-lab-bng1
+  ```
+  
+  **Solutions**:
+  1. Check firewall rules: `sudo iptables -L -n | grep <port>`
+  2. Verify no other service is using the port: `sudo lsof -i :<port>`
+  3. Restart container: `docker restart clab-lab-<container>`
+  4. Check Docker iptables: `sudo iptables -t nat -L -n`
+</Accordion>
+
+<Accordion title="Data Plane Connectivity Issues">
+  **Between BNG and ONT**:
+  ```bash
+  # Verify link status on BNG1
+  docker exec -it clab-lab-bng1 sr_cli "show port"
+  
+  # Check OLT interfaces
+  docker exec -it clab-lab-olt sr_cli "show port"
+  
+  # Verify ONT1 interface
+  docker exec clab-lab-ont1 ip link show
+  ```
+  
+  **Check VLAN configuration**:
+  ```bash
+  # ONT1 should have VLAN 150
+  docker exec clab-lab-ont1 ip -d link show eth1
+  
+  # Verify service configuration on BNG
+  docker exec -it clab-lab-bng1 sr_cli "show service id 150"
+  ```
+</Accordion>
+
+## License Problems
+
+<Warning>
+Nokia devices will not function without valid licenses. This is the most common deployment issue.
+</Warning>
+
+### Verify License Status
+
+<Steps>
+  <Step title="Check License File Exists">
+    ```bash
+    # Verify license file in configs directory
+    ls -lh configs/license/SR_SIM_license.txt
+    
+    # Check file is not empty
+    wc -l configs/license/SR_SIM_license.txt
+    ```
+  </Step>
+
+  <Step title="Verify License in Container">
+    ```bash
+    # BNG1 license status
+    docker exec -it clab-lab-bng1 sr_cli "show system license"
+    
+    # Check license details
+    docker exec -it clab-lab-bng1 sr_cli "show system license detail"
+    ```
+  </Step>
+
+  <Step title="Check License Expiry">
+    ```bash
+    docker exec -it clab-lab-bng1 sr_cli \
+      "show system license | match \"Expiry Date\""
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="License Not Found Error">
+  **Symptoms**: Device starts but shows "License not installed" or similar error
+  
+  **Diagnosis**:
+  ```bash
+  # Check if license was mounted correctly
+  docker exec clab-lab-bng1 ls -l /configs/license/
+  
+  # Verify lab.yml has correct license path
+  grep -A 2 "license:" lab.yml
+  ```
+  
+  **Solution**:
+  ```bash
+  # Ensure license file exists
+  mkdir -p configs/license
+  cp /path/to/your/SR_SIM_license.txt configs/license/
+  
+  # Verify permissions
+  chmod 644 configs/license/SR_SIM_license.txt
+  
+  # Redeploy lab
+  sudo containerlab destroy -t lab.yml
+  sudo containerlab deploy -t lab.yml
+  ```
+</Accordion>
+
+<Accordion title="License Expired">
+  **Symptoms**: Device starts but features are disabled
+  
+  **Solution**:
+  1. Obtain a new license from Nokia
+  2. Replace the old license file:
+     ```bash
+     cp /path/to/new_license.txt configs/license/SR_SIM_license.txt
+     ```
+  3. Restart affected containers:
+     ```bash
+     docker restart clab-lab-bng1 clab-lab-bng2 clab-lab-switch clab-lab-olt
+     ```
+  4. Verify new license:
+     ```bash
+     docker exec -it clab-lab-bng1 sr_cli "show system license"
+     ```
+</Accordion>
+
+<Accordion title="Wrong License Type">
+  **Symptoms**: License is valid but features are missing
+  
+  **Check Required License Features**:
+  - SR-7 platform support (for BNG1/BNG2)
+  - IXR-ec platform support (for Switch/OLT)
+  - ISA (Integrated Service Adapter) support for BNG
+  - Required capacity limits
+  
+  ```bash
+  # View licensed features
+  docker exec -it clab-lab-bng1 sr_cli "show system license detail"
+  ```
+</Accordion>
+
+## Authentication Failures
+
+### RADIUS Authentication Issues
+
+<Steps>
+  <Step title="Verify RADIUS Service">
+    ```bash
+    # Check RADIUS container is running
+    docker ps | grep radius
+    
+    # Test RADIUS locally
+    docker exec clab-lab-radius radiusd -X
+    ```
+  </Step>
+
+  <Step title="Test User Authentication">
+    ```bash
+    # Test PPPoE user credentials
+    docker exec clab-lab-radius radtest \
+      test@test.com testlab123 \
+      localhost 0 testing123
+    
+    # Should return "Access-Accept"
+    ```
+  </Step>
+
+  <Step title="Check RADIUS Logs">
+    ```bash
+    # View authentication attempts
+    docker exec clab-lab-radius tail -100 /var/log/radius/radius.log
+    
+    # Follow logs in real-time
+    docker exec clab-lab-radius tail -f /var/log/radius/radius.log
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="RADIUS Access-Reject">
+  **Symptoms**: Subscriber authentication fails, Access-Reject in logs
+  
+  **Common Causes**:
+  1. Incorrect username/password
+  2. User not in authorize file
+  3. Wrong shared secret between BNG and RADIUS
+  
+  **Diagnosis**:
+  ```bash
+  # Verify user exists in database
+  docker exec clab-lab-radius cat /etc/raddb/mods-config/files/authorize | grep test
+  
+  # Check BNG RADIUS configuration
+  docker exec -it clab-lab-bng1 sr_cli "show system security radius"
+  
+  # Verify shared secret in clients.conf
+  docker exec clab-lab-radius cat /etc/raddb/clients.conf
+  ```
+  
+  **Solution**:
+  ```bash
+  # Edit authorize file to add/fix user
+  docker exec -it clab-lab-radius vi /etc/raddb/mods-config/files/authorize
+  
+  # Restart RADIUS to apply changes
+  docker restart clab-lab-radius
+  ```
+</Accordion>
+
+<Accordion title="RADIUS Server Not Responding">
+  **Symptoms**: RADIUS timeout, no response from server
+  
+  **Diagnosis**:
+  ```bash
+  # Check connectivity from BNG to RADIUS
+  docker exec clab-lab-bng1 ping -c 3 10.77.1.10
+  
+  # Check RADIUS process is running
+  docker exec clab-lab-radius ps aux | grep radiusd
+  
+  # Check RADIUS is listening on port 1812
+  docker exec clab-lab-radius netstat -uln | grep 1812
+  ```
+  
+  **Solution**:
+  ```bash
+  # Restart RADIUS service
+  docker restart clab-lab-radius
+  
+  # Check startup script executed
+  docker logs clab-lab-radius | grep "client.sh"
+  ```
+</Accordion>
+
+### SSH Authentication Issues
+
+<Accordion title="Cannot SSH to Device">
+  **For Nokia Devices** (admin/lab123):
+  ```bash
+  # Verify SSH port mapping
+  docker port clab-lab-bng1 | grep 22
+  
+  # Try with verbose output
+  ssh -v admin@localhost -p 56661
+  
+  # Check if SSH is running in container
+  docker exec clab-lab-bng1 netstat -tln | grep :22
+  ```
+  
+  **For Linux Containers** (user/test for ONTs):
+  ```bash
+  # Verify ONT1 SSH access
+  ssh -o StrictHostKeyChecking=no user@localhost -p 56673
+  
+  # Or use direct shell access
+  docker exec -it clab-lab-ont1 /bin/bash
+  ```
+</Accordion>
+
+## Telemetry Issues
+
+### gNMIc Not Collecting Metrics
+
+<Steps>
+  <Step title="Check gNMIc Status">
+    ```bash
+    # Verify container is running
+    docker ps | grep gnmic
+    
+    # Check logs for errors
+    docker logs --tail 100 clab-lab-gnmic
+    ```
+  </Step>
+
+  <Step title="Verify Device Discovery">
+    ```bash
+    # Check Docker socket is accessible
+    docker exec clab-lab-gnmic ls -l /var/run/docker.sock
+    
+    # Test container discovery
+    docker exec clab-lab-gnmic docker ps | grep clab-lab
+    ```
+  </Step>
+
+  <Step title="Test gRPC Connectivity">
+    ```bash
+    # Test connection to BNG1
+    docker exec clab-lab-gnmic gnmic -a 10.77.1.2:57400 \
+      -u admin -p lab123 --insecure capabilities
+    
+    # Test subscription
+    docker exec clab-lab-gnmic gnmic -a 10.77.1.2:57400 \
+      -u admin -p lab123 --insecure \
+      subscribe --path "/state/system/cpu"
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="gNMIc Connection Timeout">
+  **Symptoms**: "context deadline exceeded" or timeout errors
+  
+  **Diagnosis**:
+  ```bash
+  # Check gRPC port is accessible from gNMIc container
+  docker exec clab-lab-gnmic nc -zv 10.77.1.2 57400
+  
+  # Verify device is listening on gRPC port
+  docker exec clab-lab-bng1 netstat -tln | grep 57400
+  ```
+  
+  **Solution**:
+  1. Verify credentials are correct: `admin/lab123`
+  2. Check `skip-verify: true` or `insecure: true` in config
+  3. Ensure device has finished booting
+  4. Restart gNMIc: `docker restart clab-lab-gnmic`
+</Accordion>
+
+<Accordion title="Metrics Not Appearing in Prometheus">
+  **Diagnosis Chain**:
+  ```bash
+  # 1. Check gNMIc metrics endpoint
+  curl http://localhost:9273/metrics | grep -i system_cpu
+  
+  # 2. Verify Prometheus can reach gNMIc
+  docker exec clab-lab-prometheus wget -qO- http://gnmic:9273/metrics | head
+  
+  # 3. Check Prometheus targets
+  curl http://localhost:9090/api/v1/targets | jq
+  
+  # 4. Query Prometheus for metrics
+  curl -G http://localhost:9090/api/v1/query \
+    --data-urlencode 'query=system_cpu_total' | jq
+  ```
+  
+  **Common Issues**:
+  - gNMIc not exporting metrics (check logs)
+  - Prometheus not scraping (check targets page)
+  - Metric name mismatch (check processors in gNMIc config)
+  - Time range issue (metrics may be too old or in future)
+</Accordion>
+
+### Grafana Dashboard Issues
+
+<Accordion title="Dashboard Shows 'No Data'">
+  **Checklist**:
+  ```bash
+  # 1. Verify Grafana is running
+  docker ps | grep grafana
+  
+  # 2. Check Prometheus data source
+  curl -u admin:admin http://localhost:3030/api/datasources | jq
+  
+  # 3. Test data source from Grafana
+  curl -X POST -u admin:admin \
+    http://localhost:3030/api/datasources/proxy/1/api/v1/query \
+    -H "Content-Type: application/json" \
+    -d '{"query":"up"}'
+  ```
+  
+  **Solutions**:
+  1. Verify time range is appropriate (last 6h, 24h)
+  2. Check query in Prometheus UI first
+  3. Verify dashboard variables are set correctly
+  4. Refresh dashboard or clear browser cache
+</Accordion>
+
+## Common Containerlab Issues
+
+### Lab Won't Deploy
+
+<Accordion title="Error: Address Already in Use">
+  **Symptoms**: Port conflict during deployment
+  
+  ```bash
+  # Find process using the port
+  sudo lsof -i :56661
+  sudo lsof -i :3030
+  
+  # Kill the process or change port in lab.yml
+  sudo kill <PID>
+  ```
+</Accordion>
+
+<Accordion title="Error: Image Not Found">
+  **Symptoms**: Cannot pull or find specified image
+  
+  ```bash
+  # List available images
+  docker images | grep nokia
+  docker images | grep ont-ds
+  
+  # Pull missing images
+  docker pull ghcr.io/abelperezr/ont-ds:0.2
+  docker pull ghcr.io/openconfig/gnmic:latest
+  docker pull prom/prometheus
+  docker pull grafana/grafana:10.3.5
+  ```
+  
+  <Note>
+  Nokia SR-SIM images must be built locally. They are not publicly available.
+  </Note>
+</Accordion>
+
+<Accordion title="Error: Network Already Exists">
+  **Symptoms**: Stale network from previous deployment
+  
+  ```bash
+  # Clean up old lab
+  sudo containerlab destroy -t lab.yml --cleanup
+  
+  # Remove stale network
+  docker network rm lab
+  
+  # Redeploy
+  sudo containerlab deploy -t lab.yml
+  ```
+</Accordion>
+
+### Lab Won't Destroy
+
+<Accordion title="Containers Won't Stop">
+  ```bash
+  # Force stop all lab containers
+  docker stop $(docker ps -q --filter "name=clab-lab")
+  
+  # Force remove
+  docker rm -f $(docker ps -aq --filter "name=clab-lab")
+  
+  # Clean up networks
+  docker network prune -f
+  ```
+</Accordion>
+
+## Log Locations
+
+### Containerlab Logs
+
+```bash
+# Containerlab deployment logs
+sudo journalctl -u docker | grep containerlab
+
+# Or check syslog
+sudo tail -f /var/log/syslog | grep containerlab
+```
+
+### Device Logs
+
+<Accordion title="Nokia SR OS Logs">
+  ```bash
+  # BNG1 system logs
+  docker exec -it clab-lab-bng1 sr_cli "show log log-id 99"
+  
+  # Event logs
+  docker exec -it clab-lab-bng1 sr_cli "show log event-triggered log-id 99"
+  
+  # Debug logs (if enabled)
+  docker exec -it clab-lab-bng1 sr_cli "show debug"
+  ```
+</Accordion>
+
+<Accordion title="Application Logs">
+  ```bash
+  # gNMIc
+  docker logs clab-lab-gnmic 2>&1 | tee gnmic.log
+  
+  # Prometheus
+  docker logs clab-lab-prometheus 2>&1 | tee prometheus.log
+  
+  # Grafana
+  docker logs clab-lab-grafana 2>&1 | tee grafana.log
+  
+  # RADIUS
+  docker exec clab-lab-radius cat /var/log/radius/radius.log
+  ```
+</Accordion>
+
+## Debug Commands
+
+### Network Debugging
+
+```bash
+# Capture packets on container interface
+docker exec clab-lab-bng1 tcpdump -i eth1 -w /tmp/capture.pcap
+
+# Copy capture file to host
+docker cp clab-lab-bng1:/tmp/capture.pcap ./
+
+# View interface details
+docker exec clab-lab-ont1 ip addr show
+docker exec clab-lab-ont1 ip route show
+
+# Check ARP tables
+docker exec clab-lab-bng1 sr_cli "show router arp"
+
+# Trace route
+docker exec clab-lab-ont1 traceroute 172.19.1.1
+```
+
+### Service Debugging
+
+<Accordion title="BNG Subscriber Debugging">
+  ```bash
+  # View active subscribers
+  docker exec -it clab-lab-bng1 sr_cli \
+    "show service active-subscribers"
+  
+  # Check DHCP bindings
+  docker exec -it clab-lab-bng1 sr_cli \
+    "show router dhcp bindings"
+  
+  # PPPoE sessions
+  docker exec -it clab-lab-bng1 sr_cli \
+    "show service id 150 pppoe session"
+  
+  # Debug RADIUS
+  docker exec -it clab-lab-bng1 sr_cli \
+    "debug router radius all"
+  ```
+</Accordion>
+
+<Accordion title="Enable Debug Mode">
+  ```bash
+  # Enable gNMIc debug
+  docker exec -it clab-lab-gnmic sh -c \
+    'gnmic --config /gnmic-config.yml --log --debug subscribe'
+  
+  # Enable Prometheus debug
+  # Edit prometheus.yml and add: --log.level=debug to cmd
+  
+  # RADIUS debug mode
+  docker exec -it clab-lab-radius radiusd -X
+  ```
+</Accordion>
+
+## Getting Help
+
+<Tip>
+**When reporting issues, include:**
+
+1. Output of `sudo containerlab inspect -t lab.yml`
+2. Container logs: `docker logs clab-lab-<device>`
+3. Error messages (full text)
+4. Steps to reproduce
+5. System information: `uname -a`, `docker version`
+6. Lab topology file (lab.yml)
+</Tip>
+
+<Warning>
+**Before seeking help:**
+
+1. Check license is valid and not expired
+2. Verify all containers are running: `docker ps`
+3. Review recent changes to configuration files
+4. Try redeploying: `sudo containerlab destroy && sudo containerlab deploy`
+5. Check system resources: `free -h`, `df -h`
+</Warning>
+
+## Recovery Procedures
+
+### Complete Lab Reset
+
+```bash
+# 1. Destroy existing lab
+sudo containerlab destroy -t lab.yml --cleanup
+
+# 2. Remove all containers and networks
+docker stop $(docker ps -q --filter "name=clab-lab")
+docker rm $(docker ps -aq --filter "name=clab-lab")
+docker network rm lab
+
+# 3. Clean up resources
+docker system prune -f
+
+# 4. Redeploy from scratch
+sudo containerlab deploy -t lab.yml
+
+# 5. Wait for devices to boot (2-3 minutes)
+sleep 180
+
+# 6. Verify deployment
+sudo containerlab inspect -t lab.yml
+```
+
+### Backup Configuration
+
+```bash
+# Backup BNG configuration
+docker exec -it clab-lab-bng1 sr_cli \
+  "admin save" > backup-bng1-$(date +%Y%m%d).cfg
+
+# Backup telemetry data (if needed)
+docker exec clab-lab-prometheus tar czf /tmp/prometheus-data.tar.gz /prometheus
+docker cp clab-lab-prometheus:/tmp/prometheus-data.tar.gz ./
+```

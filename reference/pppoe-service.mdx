@@ -1,0 +1,534 @@
+---
+title: PPPoE Service Reference
+description: Complete PPPoE service configuration reference including session establishment, authentication, and subscriber management
+---
+
+# PPPoE Service Reference
+
+Complete reference for PPPoE (Point-to-Point Protocol over Ethernet) subscriber services in the Nokia BNG Lab.
+
+## Overview
+
+PPPoE is a method for encapsulating PPP frames inside Ethernet frames, commonly used for broadband connections. It provides authentication, encryption, and compression capabilities.
+
+### Key Features
+
+- **PAP/CHAP Authentication**: Flexible authentication methods
+- **Session Management**: Per-subscriber PPP sessions
+- **IPv4 and IPv6**: Dual-stack support
+- **NAT Integration**: Automatic NAT for IPv4 subscribers
+- **RADIUS Integration**: Centralized authentication and accounting
+
+## PPPoE Policy Configuration
+
+```sros
+/configure subscriber-mgmt ppp-policy "pppoe"
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-authentication pref-pap
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-initial-delay true
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-mtu 1500
+/configure subscriber-mgmt ppp-policy "pppoe" reply-on-padt true
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive interval 10
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive hold-up-multiplier 4
+```
+
+### Policy Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| ppp-authentication | pref-pap | Prefer PAP, fallback to CHAP |
+| ppp-initial-delay | true | Delay LCP negotiation slightly |
+| ppp-mtu | 1500 | Maximum PPP frame size |
+| reply-on-padt | true | Send PADT response on termination |
+| keepalive interval | 10 | LCP echo interval (seconds) |
+| hold-up-multiplier | 4 | Missed keepalives before timeout (40s) |
+
+<Accordion title="Authentication Methods">
+
+### PAP (Password Authentication Protocol)
+
+```
+Client               BNG
+  │                   │
+  │ LCP Config-Req    │
+  │─────────────────▶ │
+  │ LCP Config-Ack    │
+  │◀───────────────── │
+  │                   │
+  │ PAP Auth-Req      │
+  │ (user/pass)       │
+  │─────────────────▶ │
+  │ PAP Auth-Ack      │
+  │◀───────────────── │
+  │                   │
+```
+
+**Characteristics**:
+- Sends password in clear text
+- Simple and fast
+- Less secure than CHAP
+
+### CHAP (Challenge Handshake Authentication Protocol)
+
+```
+Client               BNG
+  │                   │
+  │ LCP Config-Req    │
+  │─────────────────▶ │
+  │ LCP Config-Ack    │
+  │◀───────────────── │
+  │                   │
+  │ CHAP Challenge    │
+  │◀───────────────── │
+  │ CHAP Response     │
+  │ (hash)            │
+  │─────────────────▶ │
+  │ CHAP Success      │
+  │◀───────────────── │
+  │                   │
+```
+
+**Characteristics**:
+- Uses MD5 hash of password
+- More secure than PAP
+- Periodic re-authentication
+
+</Accordion>
+
+## Authentication Configuration
+
+### RADIUS Authentication Policy
+
+```sros
+/configure subscriber-mgmt radius-authentication-policy "autpolicy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" password testlab123
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" pppoe-access-method pap-chap
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" radius-server-policy "radius_policy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" re-authentication true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" fallback action user-db "clientes"
+```
+
+**Key Settings**:
+- **Password**: testlab123 (shared secret)
+- **Access Method**: PAP-CHAP (both supported)
+- **Re-authentication**: Enabled (RADIUS-triggered)
+- **Fallback**: Local database "clientes"
+
+### Local User Database
+
+```sros
+/configure subscriber-mgmt local-user-db clientes
+```
+
+Used as fallback when RADIUS is unavailable. Users can be added via RADIUS or manually.
+
+<Accordion title="RADIUS Attributes">
+
+### Included Attributes
+
+```sros
+# Authentication
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute access-loop-options true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute called-station-id true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute mac-address true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute nas-identifier true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute pppoe-service-name true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute remote-id true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute tunnel-server-attrs true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute acct-session-id type session
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute calling-station-id type sap-string
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute nas-port-id
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" include-radius-attribute nas-port-type
+```
+
+### Example RADIUS Access-Request
+
+```
+User-Name = "user@domain.com"
+User-Password = "secret123"
+NAS-Identifier = "BNG1"
+NAS-Port-Type = Ethernet
+NAS-Port-Id = "1/1/c1/1:50.150"
+Calling-Station-Id = "1/1/c1/1:50.150"
+Called-Station-Id = "pppoe-service"
+Framed-Protocol = PPP
+Service-Type = Framed-User
+Acct-Session-Id = "00012345"
+```
+
+### Example RADIUS Access-Accept
+
+```
+Framed-IP-Address = 100.80.0.2
+Framed-IP-Netmask = 255.255.255.248
+Framed-Route = "0.0.0.0/0 100.80.0.1"
+Alc-SLA-Prof-Str = "100M"
+Alc-Sub-Prof-Str = "subprofile"
+```
+
+</Accordion>
+
+## Group Interface Configuration
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe policy "pppoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe sap-session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe user-db "clientes"
+```
+
+**PPPoE Parameters**:
+- **Admin State**: Enabled
+- **Policy**: "pppoe" (with keepalive, MTU, etc.)
+- **Session Limit**: 131,071 total sessions
+- **SAP Session Limit**: 131,071 per SAP
+- **User DB**: "clientes" (fallback)
+
+## PPPoE Session Establishment Flow
+
+### Complete Session Setup
+
+```
+Client (CPE)        BNG                  RADIUS              DHCP/Config
+   │                  │                      │                    │
+   │ PADI             │                      │                    │
+   │ (Discovery Init) │                      │                    │
+   │───────────────▶ │                      │                    │
+   │                  │                      │                    │
+   │ PADO             │                      │                    │
+   │ (Discovery Offer)│                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │ PADR             │                      │                    │
+   │ (Discovery Req)  │                      │                    │
+   │───────────────▶ │                      │                    │
+   │                  │                      │                    │
+   │ PADS             │                      │                    │
+   │ (Session ID)     │                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │ === PPP Session Established ===         │                    │
+   │                  │                      │                    │
+   │ LCP Config-Req   │                      │                    │
+   │───────────────▶ │                      │                    │
+   │ LCP Config-Ack   │                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │ PAP Auth-Req     │                      │                    │
+   │ (username/pass)  │                      │                    │
+   │───────────────▶ │                      │                    │
+   │                  │ RADIUS Access-Req    │                    │
+   │                  │───────────────────▶ │                    │
+   │                  │ RADIUS Access-Accept │                    │
+   │                  │◀─────────────────── │                    │
+   │                  │ (IP, SLA, Sub prof)  │                    │
+   │ PAP Auth-Ack     │                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │ IPCP Config-Req  │                      │                    │
+   │───────────────▶ │                      │                    │
+   │ IPCP Config-Ack  │                      │                    │
+   │ (IP: 100.80.0.2) │                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │ IPv6CP Config-Req│                      │                    │
+   │───────────────▶ │                      │                    │
+   │ IPv6CP Config-Ack│                      │                    │
+   │◀─────────────── │                      │                    │
+   │                  │                      │                    │
+   │                  │ RADIUS Acct-Start    │                    │
+   │                  │───────────────────▶ │                    │
+   │                  │                      │                    │
+   │ Session UP       │                      │                    │
+   │ IP connectivity  │                      │                    │
+```
+
+### Discovery Phase
+
+1. **PADI (PPPoE Active Discovery Initiation)**
+   - Client broadcasts to find PPPoE servers
+   - Contains service name (optional)
+
+2. **PADO (PPPoE Active Discovery Offer)**
+   - BNG responds with its MAC address
+   - Offers PPPoE service
+
+3. **PADR (PPPoE Active Discovery Request)**
+   - Client requests session from specific BNG
+   - Unicast to BNG MAC
+
+4. **PADS (PPPoE Active Discovery Session-confirmation)**
+   - BNG assigns unique Session ID
+   - PPP session begins
+
+### Session Phase
+
+1. **LCP (Link Control Protocol)**
+   - Negotiates PPP parameters
+   - MTU, authentication method, etc.
+
+2. **Authentication (PAP/CHAP)**
+   - Client sends credentials
+   - BNG validates via RADIUS or local DB
+
+3. **IPCP (IP Control Protocol)**
+   - Negotiates IPv4 address
+   - DNS servers, default route
+
+4. **IPv6CP (IPv6 Control Protocol)**
+   - Negotiates IPv6 parameters
+   - Interface identifier
+
+## Session Termination
+
+### Graceful Termination
+
+```
+Client              BNG                  RADIUS
+  │                   │                      │
+  │ LCP Term-Req      │                      │
+  │─────────────────▶ │                      │
+  │ LCP Term-Ack      │                      │
+  │◀───────────────── │                      │
+  │                   │                      │
+  │ PADT              │                      │
+  │─────────────────▶ │                      │
+  │                   │ RADIUS Acct-Stop     │
+  │                   │───────────────────▶ │
+  │                   │                      │
+```
+
+### Keepalive Timeout
+
+```
+BNG sends LCP Echo-Request every 10 seconds
+If 4 consecutive echoes fail (40 seconds):
+  1. BNG sends LCP Term-Req
+  2. BNG sends PADT
+  3. Session terminated
+  4. RADIUS Acct-Stop sent
+```
+
+## Subscriber Session Example
+
+### PPPoE Session Details
+
+```
+Session Information:
+  Type: PPPoE
+  Session ID: 0x1234
+  Username: user@domain.com
+  Circuit ID: 1/1/c1/1:50.150
+  MAC Address: 00:11:22:33:44:55
+  
+PPP Parameters:
+  MTU: 1500
+  MRU: 1500
+  Authentication: PAP
+  LCP State: Opened
+  
+IPv4:
+  Local Address: 100.80.0.2
+  Remote Address: 100.80.0.1
+  Primary DNS: 8.8.8.8
+  Secondary DNS: 8.8.4.4
+  NAT Outside: 99.99.99.99:1024-1087
+  
+IPv6:
+  Interface ID: ::2
+  Link-Local: fe80::211:22ff:fe33:4455
+  Global: 2001:db8:100::2/128
+  
+QoS:
+  SLA Profile: 100M
+  Ingress: 100 Mbps PIR/CIR
+  Egress: 100 Mbps PIR/CIR
+  
+Accounting:
+  Input Packets: 12345
+  Output Packets: 67890
+  Input Octets: 1234567890
+  Output Octets: 9876543210
+  Session Time: 7200 seconds (2 hours)
+```
+
+## Verification Commands
+
+```bash
+# Show PPPoE sessions
+show service active-subscribers type pppoe
+
+# Show specific session
+show service active-subscribers subscriber "user@domain.com" detail
+
+# Show PPPoE statistics
+show service id 9998 pppoe statistics
+
+# Show session hierarchy
+show service active-subscribers hierarchy
+
+# Show PPPoE session detail by session ID
+show service id 9998 pppoe session 0x1234
+
+# Show group interface PPPoE config
+show service id 9998 subscriber-interface "services" group-interface "gi" pppoe
+
+# Show keepalive status
+show service id 9998 pppoe session keepalive
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="PPPoE Discovery fails (no PADO)">
+
+**Symptoms**: Client sends PADI but receives no PADO
+
+**Check**:
+1. PPPoE enabled on group interface
+2. Capture SAP operational
+3. VPLS forwarding
+
+**Verify**:
+```bash
+show service id 9998 subscriber-interface "services" group-interface "gi" pppoe
+show service id 2 fdb detail
+```
+
+**Debug**:
+```bash
+debug service id 9998 pppoe packet
+```
+
+</Accordion>
+
+<Accordion title="Authentication fails">
+
+**Symptoms**: PADS sent but LCP/Auth fails
+
+**Check**:
+1. RADIUS connectivity
+2. Username/password correct
+3. Shared secret matches
+
+**Verify**:
+```bash
+show aaa radius server-policy "radius_policy"
+show subscriber-mgmt radius-authentication-policy "autpolicy"
+```
+
+**Debug**:
+```bash
+debug radius
+debug service id 9998 pppoe packet detail
+```
+
+**Common Issues**:
+- Wrong RADIUS shared secret
+- RADIUS server unreachable
+- User not in RADIUS database
+- Password mismatch
+
+</Accordion>
+
+<Accordion title="Session established but no IP connectivity">
+
+**Check**:
+1. IPCP negotiation successful
+2. Default route installed
+3. NAT configuration
+
+**Verify**:
+```bash
+show service active-subscribers subscriber "user@domain.com" detail
+show router 9998 route-table
+show service nat isa nat-group 1 subscribers
+```
+
+**Common Causes**:
+- IPCP not negotiating IP address
+- NAT pool exhausted
+- Routing issue
+- Filter blocking traffic
+
+</Accordion>
+
+<Accordion title="Session drops unexpectedly">
+
+**Check keepalive**:
+```bash
+show service id 9998 pppoe session keepalive
+show subscriber-mgmt ppp-policy "pppoe"
+```
+
+**Possible causes**:
+- Keepalive timeout (no LCP echo response)
+- Link failure
+- PADT from client
+- RADIUS disconnect/CoA
+
+**Debug**:
+```bash
+debug service id 9998 pppoe packet
+show log log-id 99 | match PPPoE
+```
+
+</Accordion>
+
+<Accordion title="MTU issues / fragmentation">
+
+**Symptoms**: Large packets fail, small packets work
+
+**Check PPP MTU**:
+```bash
+show subscriber-mgmt ppp-policy "pppoe"
+```
+
+**Solution**:
+- PPP MTU: 1500
+- Consider MSS clamping for TCP
+- Adjust MTU in RADIUS if needed
+
+**RADIUS Attribute**:
+```
+Framed-MTU = 1492  # PPPoE overhead: 8 bytes
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Performance Tuning
+
+### Session Scaling
+
+```sros
+# Increase session limits
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt subscriber-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe session-limit 131071
+```
+
+### Keepalive Tuning
+
+```sros
+# Adjust keepalive for high-latency links
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive interval 30
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive hold-up-multiplier 3
+# Timeout = 30s * 3 = 90 seconds
+```
+
+### Authentication Optimization
+
+```sros
+# Enable fast re-authentication
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" re-authentication true
+
+# Use local DB for faster failover
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" fallback action user-db "clientes"
+```
+
+## Related Pages
+
+- [IPoE Service](/reference/ipoe-service)
+- [NAT Configuration](/reference/nat-configuration)
+- [BNG1 Configuration](/reference/bng1-config)
+- [BNG2 Configuration](/reference/bng2-config)

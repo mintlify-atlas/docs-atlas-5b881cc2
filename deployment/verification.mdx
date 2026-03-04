@@ -1,0 +1,616 @@
+---
+title: Verification
+description: Verify and test your Nokia BNG Lab deployment
+---
+
+After deployment, follow these verification steps to ensure all components are functioning correctly.
+
+## Quick Verification
+
+<Steps>
+  <Step title="Check All Containers">
+    Verify all containers are running:
+    
+    ```bash
+    sudo containerlab inspect -t lab.yml
+    ```
+    
+    Expected output shows all nodes in `running` state with assigned management IPs.
+  </Step>
+  
+  <Step title="Verify Container Health">
+    ```bash
+    docker ps --format "table {{.Names}}\t{{.Status}}"
+    ```
+    
+    All containers should show `Up` status.
+  </Step>
+</Steps>
+
+## Network Nodes Verification
+
+### BNG Nodes (BNG1 & BNG2)
+
+<Steps>
+  <Step title="Connect to BNG1">
+    ```bash
+    ssh admin@localhost -p 56661
+    # Password: lab123
+    ```
+  </Step>
+  
+  <Step title="Check System Status">
+    ```
+    show system information
+    show chassis
+    show card
+    ```
+    
+    Verify:
+    - System is operational
+    - All cards are in `up` state
+    - Version is 25.10.R2
+  </Step>
+  
+  <Step title="Verify Interfaces">
+    ```
+    show router interface
+    show port
+    ```
+    
+    All configured interfaces should be `up/up`.
+  </Step>
+  
+  <Step title="Check BNG Services">
+    ```
+    show service service-using
+    show service active-subscribers
+    ```
+    
+    Services should be operational and ready to accept subscribers.
+  </Step>
+</Steps>
+
+<Accordion title="Verify BNG2 Similarly">
+  Connect to BNG2 and run the same verification commands:
+  
+  ```bash
+  ssh admin@localhost -p 56664
+  # Password: lab123
+  ```
+  
+  Verify system status, interfaces, and BNG services.
+</Accordion>
+
+### Switch & OLT
+
+<Steps>
+  <Step title="Connect to Switch">
+    ```bash
+    ssh admin@localhost -p 56667
+    # Password: lab123
+    ```
+  </Step>
+  
+  <Step title="Verify Switch Operation">
+    ```
+    show port
+    show router interface
+    ```
+    
+    All ports connected to other devices should show `up` status.
+  </Step>
+  
+  <Step title="Connect to OLT">
+    ```bash
+    ssh admin@localhost -p 56678
+    # Password: lab123
+    ```
+  </Step>
+  
+  <Step title="Verify OLT Status">
+    ```
+    show port
+    show service service-using
+    ```
+  </Step>
+</Steps>
+
+### TX (SRLinux Router)
+
+<Steps>
+  <Step title="Connect to TX">
+    ```bash
+    ssh admin@localhost -p 56676
+    # Default password for SRLinux
+    ```
+  </Step>
+  
+  <Step title="Check Interfaces">
+    ```bash
+    show interface brief
+    show network-instance
+    ```
+    
+    Verify connectivity to BNG1 and BNG2.
+  </Step>
+</Steps>
+
+## Connectivity Testing
+
+### Management Network Connectivity
+
+<Steps>
+  <Step title="Ping Management IPs">
+    From your host:
+    
+    ```bash
+    # Ping BNG1
+    docker exec clab-lab-bng1 sr_cli "ping 10.77.1.1 count 3"
+    
+    # Ping BNG2
+    docker exec clab-lab-bng2 sr_cli "ping 10.77.1.1 count 3"
+    ```
+  </Step>
+  
+  <Step title="Cross-Node Connectivity">
+    Test connectivity between nodes:
+    
+    ```bash
+    # From BNG1 to BNG2
+    docker exec clab-lab-bng1 sr_cli "ping 10.77.1.3 count 3"
+    
+    # From BNG1 to Switch
+    docker exec clab-lab-bng1 sr_cli "ping 10.77.1.4 count 3"
+    ```
+  </Step>
+</Steps>
+
+### Data Plane Connectivity
+
+<Steps>
+  <Step title="Verify Link Status">
+    Check physical links between devices:
+    
+    ```bash
+    # On BNG1
+    ssh admin@localhost -p 56661 "show port 1/1/c1/1"
+    
+    # On TX
+    ssh admin@localhost -p 56676 "show interface ethernet-1/1"
+    ```
+    
+    Both ends should show `up/up` status.
+  </Step>
+</Steps>
+
+## Service Access Verification
+
+### Grafana Dashboard
+
+<Steps>
+  <Step title="Open Grafana">
+    Navigate to: http://localhost:3030
+  </Step>
+  
+  <Step title="Login">
+    - Username: `admin`
+    - Password: `admin`
+    
+    <Info>
+    You may be prompted to change the password on first login.
+    </Info>
+  </Step>
+  
+  <Step title="Verify Dashboards">
+    Check that dashboards are loading:
+    
+    - Navigate to Dashboards
+    - Look for Nokia BNG-specific dashboards
+    - Verify data is being displayed
+  </Step>
+</Steps>
+
+### Prometheus Metrics
+
+<Steps>
+  <Step title="Open Prometheus">
+    Navigate to: http://localhost:9090
+  </Step>
+  
+  <Step title="Check Targets">
+    - Go to Status → Targets
+    - Verify gNMIc target is `UP`
+  </Step>
+  
+  <Step title="Query Metrics">
+    Test a sample query:
+    
+    ```
+    gnmic_nokia_interfaces_interface_statistics_in_octets
+    ```
+    
+    Should return metrics from Nokia devices.
+  </Step>
+</Steps>
+
+### ONT Web Interfaces
+
+<Steps>
+  <Step title="Access ONT1 Dashboard">
+    Navigate to: http://localhost:8081
+    
+    Should display ONT1 status page.
+  </Step>
+  
+  <Step title="Access ONT2 Dashboard">
+    Navigate to: http://localhost:8082
+    
+    Should display ONT2 status page.
+  </Step>
+</Steps>
+
+## Client Device Verification
+
+### ONT Devices
+
+<Steps>
+  <Step title="Check ONT1 Connectivity">
+    ```bash
+    # Connect to ONT1
+    docker exec -it clab-lab-ont1 bash
+    
+    # Check interfaces
+    ip addr show
+    
+    # Check VLAN interface
+    ip addr show eth1.150
+    ```
+    
+    ONT1 uses IPoE (VLAN 150).
+  </Step>
+  
+  <Step title="Check ONT2 Connectivity">
+    ```bash
+    # Connect to ONT2
+    docker exec -it clab-lab-ont2 bash
+    
+    # Check PPPoE status
+    ip addr show ppp0
+    ```
+    
+    ONT2 uses PPPoE authentication.
+  </Step>
+</Steps>
+
+### Run IPv6 DHCPv6 PD Verification
+
+The lab includes a verification script for DHCPv6 with Prefix Delegation:
+
+```bash
+# Run the verification script
+sudo bash configs/scripts/verify-pd.sh
+```
+
+This script checks:
+- DHCPv6 client (odhcp6c) is running
+- IPv4 and IPv6 WAN addresses on ONTs
+- IPv6 Prefix Delegation to LAN interfaces
+- Router Advertisement daemon (radvd) status
+- PC1 received IPv6 address from delegated prefix
+
+<Accordion title="Manual DHCPv6 PD Verification">
+  Check DHCPv6 PD status manually:
+  
+  ```bash
+  # On ONT1
+  docker exec clab-lab-ont1 ip -6 addr show eth1.150 scope global
+  docker exec clab-lab-ont1 ip -6 addr show eth2 scope global
+  
+  # On PC1 (should have address from delegated prefix)
+  docker exec clab-lab-pc1 ip -6 addr show eth1 scope global
+  ```
+</Accordion>
+
+## Telemetry Verification
+
+### gNMIc Collector
+
+<Steps>
+  <Step title="Check gNMIc Status">
+    ```bash
+    docker logs clab-lab-gnmic --tail 50
+    ```
+    
+    Look for successful subscriptions to BNG nodes.
+  </Step>
+  
+  <Step title="Verify Subscriptions">
+    The logs should show:
+    - Connection to each Nokia node (BNG1, BNG2, Switch, OLT)
+    - Active subscriptions on ports 57400
+    - Data being collected
+  </Step>
+</Steps>
+
+### End-to-End Telemetry Flow
+
+<Steps>
+  <Step title="Verify Data Collection">
+    ```bash
+    # Check gNMIc is collecting
+    docker exec clab-lab-gnmic gnmic -a bng1:57400 -u admin -p lab123 --insecure get --path /state/system/cpu[index=all]/summary
+    ```
+  </Step>
+  
+  <Step title="Verify Prometheus Scraping">
+    In Prometheus UI (http://localhost:9090):
+    
+    Query: `up{job="gnmic"}`
+    
+    Should return `1` (target is up).
+  </Step>
+  
+  <Step title="Verify Grafana Visualization">
+    In Grafana:
+    - Open a dashboard
+    - Verify panels show data
+    - Check time range includes recent data
+  </Step>
+</Steps>
+
+## RADIUS Service Verification
+
+<Steps>
+  <Step title="Check RADIUS Server Status">
+    ```bash
+    docker exec clab-lab-radius ps aux | grep radius
+    ```
+    
+    FreeRADIUS service should be running.
+  </Step>
+  
+  <Step title="Check RADIUS Logs">
+    ```bash
+    docker logs clab-lab-radius --tail 50
+    ```
+    
+    Look for successful server startup.
+  </Step>
+  
+  <Step title="Test RADIUS Authentication">
+    From a BNG node, verify RADIUS connectivity:
+    
+    ```bash
+    # On BNG1
+    ssh admin@localhost -p 56661
+    ping 10.77.1.10
+    ```
+    
+    RADIUS server should be reachable at 10.77.1.10.
+  </Step>
+</Steps>
+
+## BNG Subscriber Testing
+
+### Test IPoE Subscriber (ONT1)
+
+<Steps>
+  <Step title="Trigger DHCP Request">
+    ```bash
+    docker exec clab-lab-ont1 dhclient -r eth1.150
+    docker exec clab-lab-ont1 dhclient eth1.150
+    ```
+  </Step>
+  
+  <Step title="Verify Subscriber on BNG1">
+    ```bash
+    ssh admin@localhost -p 56661
+    ```
+    
+    ```
+    show service active-subscribers
+    show service id 9998 dhcp summary
+    ```
+    
+    Should show active IPoE subscriber.
+  </Step>
+</Steps>
+
+### Test PPPoE Subscriber (ONT2)
+
+<Steps>
+  <Step title="Check PPPoE Session">
+    ```bash
+    docker exec clab-lab-ont2 ip addr show ppp0
+    ```
+    
+    Should show assigned IP address.
+  </Step>
+  
+  <Step title="Verify Subscriber on BNG">
+    ```bash
+    ssh admin@localhost -p 56661
+    # or BNG2 on port 56664
+    ```
+    
+    ```
+    show service active-subscribers
+    show service id 9998 ppp session
+    ```
+    
+    Should show active PPPoE subscriber.
+  </Step>
+</Steps>
+
+## Performance Testing
+
+### iPerf Tests
+
+<Steps>
+  <Step title="Start iPerf Server">
+    ```bash
+    docker exec -it clab-lab-iperf iperf3 -s
+    ```
+  </Step>
+  
+  <Step title="Run Client Test">
+    From another terminal:
+    
+    ```bash
+    # Test from ONT1
+    docker exec clab-lab-ont1 iperf3 -c 172.19.1.1 -t 10
+    ```
+  </Step>
+</Steps>
+
+## Health Check Summary
+
+Run this comprehensive health check:
+
+```bash
+#!/bin/bash
+echo "=== Nokia BNG Lab Health Check ==="
+echo ""
+
+echo "1. Container Status:"
+docker ps --filter "name=clab-lab-" --format "{{.Names}}: {{.Status}}" | grep -E "(bng|switch|olt)"
+
+echo ""
+echo "2. Service Access:"
+curl -s -o /dev/null -w "Grafana: %{http_code}\n" http://localhost:3030
+curl -s -o /dev/null -w "Prometheus: %{http_code}\n" http://localhost:9090
+
+echo ""
+echo "3. Management Connectivity:"
+docker exec clab-lab-bng1 sr_cli "ping 10.77.1.1 count 1" 2>/dev/null | grep -q "1 packets received" && echo "BNG1: OK" || echo "BNG1: FAIL"
+docker exec clab-lab-bng2 sr_cli "ping 10.77.1.1 count 1" 2>/dev/null | grep -q "1 packets received" && echo "BNG2: OK" || echo "BNG2: FAIL"
+
+echo ""
+echo "4. Telemetry Status:"
+docker logs clab-lab-gnmic 2>&1 | grep -q "connected" && echo "gNMIc: Connected" || echo "gNMIc: Check logs"
+
+echo ""
+echo "=== Health Check Complete ==="
+```
+
+<Note>
+Save this script as `health-check.sh`, make it executable with `chmod +x health-check.sh`, and run it anytime.
+</Note>
+
+## Common Issues and Solutions
+
+<Accordion title="No Subscribers Appear on BNG">
+  **Problem**: Subscribers not showing up in active subscribers list
+  
+  **Solutions**:
+  1. Check RADIUS server is running and accessible
+  2. Verify RADIUS authentication credentials
+  3. Check VLAN configuration on OLT and Switch
+  4. Verify subscriber configuration on BNG
+  
+  ```bash
+  # Check RADIUS connectivity from BNG
+  docker exec clab-lab-bng1 sr_cli "ping 10.77.1.10"
+  
+  # Check RADIUS logs
+  docker logs clab-lab-radius | grep -i error
+  ```
+</Accordion>
+
+<Accordion title="Grafana Shows No Data">
+  **Problem**: Dashboards display but no metrics appear
+  
+  **Solutions**:
+  1. Verify gNMIc is collecting metrics
+  2. Check Prometheus targets are up
+  3. Ensure correct time range in Grafana
+  
+  ```bash
+  # Check gNMIc logs
+  docker logs clab-lab-gnmic --tail 100
+  
+  # Check Prometheus targets
+  curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets'
+  ```
+</Accordion>
+
+<Accordion title="Cannot SSH to Devices">
+  **Problem**: SSH connection refused or times out
+  
+  **Solutions**:
+  1. Verify container is running
+  2. Check port mappings
+  3. Ensure SSH service started properly
+  
+  ```bash
+  # Verify container status
+  docker ps | grep clab-lab-bng1
+  
+  # Check port mappings
+  docker port clab-lab-bng1
+  
+  # Access via management network instead
+  docker exec -it clab-lab-bng1 sr_cli
+  ```
+</Accordion>
+
+<Accordion title="ONT Devices No Connectivity">
+  **Problem**: ONTs can't get IP addresses or establish sessions
+  
+  **Solutions**:
+  1. Verify OLT is forwarding traffic
+  2. Check VLAN configuration
+  3. Verify BNG service configuration
+  
+  ```bash
+  # Check ONT interface status
+  docker exec clab-lab-ont1 ip link show eth1.150
+  
+  # Check BNG accepts connections
+  ssh admin@localhost -p 56661 "show service id 9998 base"
+  ```
+</Accordion>
+
+<Accordion title="High CPU or Memory Usage">
+  **Problem**: System resources are maxed out
+  
+  **Solutions**:
+  1. Check which containers are consuming resources
+  2. Consider stopping non-essential services
+  3. Increase system resources if needed
+  
+  ```bash
+  # Check resource usage
+  docker stats --no-stream
+  
+  # Stop specific containers if needed
+  docker stop clab-lab-grafana  # If not using dashboards
+  ```
+</Accordion>
+
+## Verification Checklist
+
+Before proceeding with lab exercises, ensure:
+
+- [ ] All containers are running (`docker ps` shows no errors)
+- [ ] Can SSH to all Nokia devices
+- [ ] Management network connectivity works
+- [ ] Grafana and Prometheus are accessible
+- [ ] gNMIc is collecting telemetry data
+- [ ] RADIUS server is operational
+- [ ] At least one ONT can establish a session
+- [ ] BNG shows active subscribers
+- [ ] Telemetry data flows to Grafana dashboards
+
+## Next Steps
+
+With your lab verified and running:
+
+1. Explore the topology and configurations
+2. Test different BNG scenarios
+3. Monitor traffic with Grafana dashboards
+4. Experiment with subscriber management
+5. Test failover scenarios between BNG1 and BNG2
+
+For detailed use cases and scenarios, refer to the [Architecture](/architecture/overview) and [Configuration](/configuration/bng) sections.

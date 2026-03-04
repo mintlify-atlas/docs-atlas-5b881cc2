@@ -1,0 +1,747 @@
+---
+title: Available Metrics
+description: Comprehensive catalog of Nokia SROS and SR Linux telemetry metrics
+---
+
+# Available Metrics Catalog
+
+This page documents all telemetry metrics available from Nokia SROS and SR Linux devices in the BNG lab.
+
+## Metric Overview
+
+Metrics are collected via gNMI streaming telemetry at 5-second intervals and exported to Prometheus.
+
+**Metric Types**:
+- **Counter**: Cumulative value that only increases (resets on restart)
+- **Gauge**: Value that can increase or decrease
+- **String**: Converted to labels in Prometheus
+
+**Naming Convention**:
+- SROS: `/state/` prefix removed by gNMIc processor
+- SR Linux: YANG path structure preserved
+- Underscores separate path elements
+
+## SROS Metrics (BNG1, BNG2)
+
+Metrics from Nokia Service Router Operating System devices.
+
+### Port Statistics
+
+Physical interface metrics from `/state/port/statistics/` and `/state/port/ethernet/statistics/`
+
+<Tabs>
+  <Tab title="Traffic Counters">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `port_statistics_in_packets` | Counter | Total ingress packets |
+| `port_statistics_out_packets` | Counter | Total egress packets |
+| `port_statistics_in_octets` | Counter | Total ingress bytes |
+| `port_statistics_out_octets` | Counter | Total egress bytes |
+
+**Labels**: `device`, `port_id`
+
+**Example Query**:
+```promql
+# Ingress traffic rate (bps)
+rate(port_statistics_in_octets{device="bng1"}[5m]) * 8
+
+# Packets per second
+rate(port_statistics_in_packets{device="bng1",port_id="1/1/c1/1"}[5m])
+```
+  </Tab>
+  
+  <Tab title="Error Counters">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `port_statistics_in_errors` | Counter | Ingress error packets |
+| `port_statistics_out_errors` | Counter | Egress error packets |
+| `port_statistics_in_discards` | Counter | Ingress packets dropped |
+| `port_statistics_out_discards` | Counter | Egress packets dropped |
+| `port_ethernet_statistics_in_crc_errors` | Counter | CRC errors on ingress |
+| `port_ethernet_statistics_in_fcs_errors` | Counter | Frame check sequence errors |
+
+**Labels**: `device`, `port_id`
+
+**Example Query**:
+```promql
+# Error rate
+rate(port_statistics_in_errors[5m])
+
+# Interfaces with errors
+port_statistics_in_errors > 0
+```
+  </Tab>
+  
+  <Tab title="Frame Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `port_ethernet_statistics_in_broadcast_packets` | Counter | Broadcast frames received |
+| `port_ethernet_statistics_in_multicast_packets` | Counter | Multicast frames received |
+| `port_ethernet_statistics_out_broadcast_packets` | Counter | Broadcast frames sent |
+| `port_ethernet_statistics_out_multicast_packets` | Counter | Multicast frames sent |
+| `port_ethernet_statistics_in_undersized_packets` | Counter | Frames smaller than 64 bytes |
+| `port_ethernet_statistics_in_oversized_packets` | Counter | Frames larger than MTU |
+
+**Labels**: `device`, `port_id`
+  </Tab>
+  
+  <Tab title="Operational State">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `port_oper_state` | Gauge | Port operational state (1=up, 0=down) |
+
+**Labels**: `device`, `port_id`
+
+**Example Query**:
+```promql
+# All ports that are down
+port_oper_state{device="bng1"} == 0
+
+# Count of up ports per device
+count by (device) (port_oper_state == 1)
+```
+  </Tab>
+</Tabs>
+
+### System Metrics
+
+Device-level resource usage from `/state/system/`
+
+<Accordion title="CPU Utilization">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `system_cpu` | Gauge | CPU utilization percentage (0-100) |
+
+**Labels**: `device`, `sample_period`
+
+**Example Query**:
+```promql
+# Current CPU usage
+system_cpu{device="bng1"}
+
+# Average CPU across all BNGs
+avg(system_cpu{device=~"bng.*"})
+
+# Max CPU in last hour
+max_over_time(system_cpu{device="bng1"}[1h])
+```
+</Accordion>
+
+<Accordion title="Memory Pools">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `system_memory_pools_in_use` | Gauge | Memory currently in use (bytes) |
+| `system_memory_pools_available` | Gauge | Total available memory (bytes) |
+| `system_memory_pools_free` | Gauge | Free memory (bytes) |
+
+**Labels**: `device`, `pool_name`
+
+**Example Query**:
+```promql
+# Memory utilization percentage
+(system_memory_pools_in_use / system_memory_pools_available) * 100
+
+# Free memory in GB
+system_memory_pools_free / 1024 / 1024 / 1024
+```
+</Accordion>
+
+<Accordion title="Temperature Sensors">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `card_hardware_data_temperature` | Gauge | Card temperature (Celsius) |
+| `chassis_chassis_control_module_hardware_data_temperature` | Gauge | Control module temperature |
+
+**Labels**: `device`, `slot_number`, `ccm_slot`
+
+**Example Query**:
+```promql
+# All temperature sensors
+card_hardware_data_temperature
+
+# High temperature alert
+card_hardware_data_temperature > 70
+```
+</Accordion>
+
+<Accordion title="Fan Speeds">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `chassis_fan_speed` | Gauge | Fan speed (RPM) |
+
+**Labels**: `device`, `chassis_class`, `chassis_number`, `fan_slot`
+
+**Example Query**:
+```promql
+# Fan speeds by device
+chassis_fan_speed{device="bng1"}
+```
+</Accordion>
+
+### BNG Session Metrics
+
+Subscriber and session management from `/state/subscriber-mgmt/`
+
+<Accordion title="Local User Database (LUDB)">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `subscriber_mgmt_local_user_db_ipoe_session_stats_current` | Gauge | Current active IPoE sessions |
+| `subscriber_mgmt_local_user_db_ipoe_session_stats_peak` | Gauge | Peak IPoE sessions |
+| `subscriber_mgmt_local_user_db_ipoe_session_stats_setup` | Counter | Total IPoE sessions established |
+| `subscriber_mgmt_local_user_db_ipoe_session_stats_setup_failed` | Counter | Failed IPoE session attempts |
+
+**Labels**: `device`, `name` (LUDB name)
+
+**Example Query**:
+```promql
+# Total active sessions
+sum(subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+
+# Sessions per BNG
+sum by (device) (subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+
+# Session setup rate
+rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup[5m])
+
+# Failed session rate
+rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup_failed[5m])
+```
+</Accordion>
+
+<Accordion title="VPLS SAP Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `service_vpls_sap_oper_state` | Gauge | SAP operational state (1=up, 0=down) |
+| `service_vpls_sap_ingress_packets` | Counter | Packets received on SAP |
+| `service_vpls_sap_egress_packets` | Counter | Packets sent on SAP |
+| `service_vpls_sap_ingress_octets` | Counter | Bytes received on SAP |
+| `service_vpls_sap_egress_octets` | Counter | Bytes sent on SAP |
+
+**Labels**: `device`, `service_name`, `sap_id`
+
+**Example Query**:
+```promql
+# SAP traffic rate
+rate(service_vpls_sap_ingress_octets[5m]) * 8
+
+# Down SAPs
+service_vpls_sap_oper_state == 0
+```
+</Accordion>
+
+### Routing Protocol Metrics
+
+<Tabs>
+  <Tab title="BGP Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `router_bgp_statistics_total_routes` | Gauge | Total BGP routes |
+| `router_bgp_statistics_total_paths` | Gauge | Total BGP paths |
+| `router_bgp_statistics_routes_per_family_received` | Gauge | Routes received per AFI/SAFI |
+| `router_bgp_statistics_routes_per_family_active` | Gauge | Active routes per AFI/SAFI |
+| `router_bgp_neighbor_statistics_received_prefixes` | Gauge | Prefixes from neighbor |
+| `router_bgp_neighbor_statistics_active_prefixes` | Gauge | Active prefixes from neighbor |
+
+**Labels**: `device`, `family` (ipv4, ipv6, etc.)
+
+**Example Query**:
+```promql
+# Total BGP routes
+router_bgp_statistics_total_routes
+
+# IPv4 routes
+router_bgp_statistics_routes_per_family_active{family="ipv4"}
+
+# Routes per neighbor
+router_bgp_neighbor_statistics_received_prefixes
+```
+  </Tab>
+  
+  <Tab title="ISIS Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `router_isis_statistics_adjacency_changes` | Counter | ISIS adjacency state changes |
+| `router_isis_statistics_corrupted_lsps` | Counter | Corrupted LSPs received |
+| `router_isis_statistics_database_overloads` | Counter | Database overload events |
+
+**Labels**: `device`
+
+**Example Query**:
+```promql
+# ISIS adjacency change rate
+rate(router_isis_statistics_adjacency_changes[5m])
+```
+  </Tab>
+  
+  <Tab title="Route Table Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `router_route_table_unicast_active` | Gauge | Active routes in table |
+| `router_route_table_unicast_total` | Gauge | Total routes (active + backup) |
+
+**Labels**: `device`, `family` (ipv4, ipv6), `protocol` (bgp, isis, static, etc.)
+
+**Example Query**:
+```promql
+# Active IPv4 routes
+router_route_table_unicast_active{family="ipv4"}
+
+# Routes by protocol
+sum by (protocol) (router_route_table_unicast_active)
+```
+  </Tab>
+  
+  <Tab title="Router Interface Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `router_interface_statistics_in_packets` | Counter | L3 packets received |
+| `router_interface_statistics_out_packets` | Counter | L3 packets sent |
+| `router_interface_statistics_in_octets` | Counter | L3 bytes received |
+| `router_interface_statistics_out_octets` | Counter | L3 bytes sent |
+
+**Labels**: `device`, `interface_name`, `family` (ipv4, ipv6)
+
+**Example Query**:
+```promql
+# L3 interface traffic
+rate(router_interface_statistics_in_octets[5m]) * 8
+```
+  </Tab>
+</Tabs>
+
+### Service Statistics
+
+<Accordion title="VPLS Services">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `service_vpls_oper_state` | Gauge | VPLS service state (1=up, 0=down) |
+
+**Labels**: `device`, `service_name`
+
+**Example Query**:
+```promql
+# Down VPLS services
+service_vpls_oper_state == 0
+
+# Count of active VPLS per device
+count by (device) (service_vpls_oper_state == 1)
+```
+</Accordion>
+
+<Accordion title="VPRN Services">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `service_vprn_oper_state` | Gauge | VPRN service state (1=up, 0=down) |
+
+**Labels**: `device`, `service_name`
+
+**Example Query**:
+```promql
+# All VPRN services
+service_vprn_oper_state
+```
+</Accordion>
+
+## SR Linux Metrics (Switch, OLT, TX)
+
+Metrics from Nokia SR Linux network operating system.
+
+### Platform Metrics
+
+Hardware resource monitoring from `/platform/`
+
+<Accordion title="CPU Utilization">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `platform_control_cpu_total` | Gauge | Total CPU usage percentage |
+
+**Labels**: `device`, `slot`, `index`
+
+**Example Query**:
+```promql
+# CPU per control module
+platform_control_cpu_total
+
+# Average CPU per device
+avg by (device) (platform_control_cpu_total)
+```
+</Accordion>
+
+<Accordion title="Memory Usage">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `platform_control_memory_physical` | Gauge | Total physical memory (bytes) |
+| `platform_control_memory_reserved` | Gauge | Reserved memory (bytes) |
+| `platform_control_memory_free` | Gauge | Free memory (bytes) |
+
+**Labels**: `device`, `slot`
+
+**Example Query**:
+```promql
+# Memory utilization percentage
+((platform_control_memory_physical - platform_control_memory_free) / 
+  platform_control_memory_physical) * 100
+
+# Free memory in GB
+platform_control_memory_free / 1024 / 1024 / 1024
+```
+</Accordion>
+
+### Application Management
+
+<Accordion title="Application Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `system_app_management_application_memory_usage` | Gauge | App memory usage (bytes) |
+| `system_app_management_application_cpu_usage` | Gauge | App CPU usage percentage |
+
+**Labels**: `device`, `name` (application name)
+
+**Example Query**:
+```promql
+# Top 5 apps by memory
+topk(5, system_app_management_application_memory_usage)
+
+# CPU per application
+system_app_management_application_cpu_usage{name="bgp_mgr"}
+```
+</Accordion>
+
+### Interface Statistics
+
+Ethernet interface metrics from `/interface/`
+
+<Tabs>
+  <Tab title="Traffic Counters">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_statistics_in_packets` | Counter | Ingress packets |
+| `interface_statistics_out_packets` | Counter | Egress packets |
+| `interface_statistics_in_octets` | Counter | Ingress bytes |
+| `interface_statistics_out_octets` | Counter | Egress bytes |
+| `interface_statistics_in_unicast_packets` | Counter | Unicast ingress |
+| `interface_statistics_in_broadcast_packets` | Counter | Broadcast ingress |
+| `interface_statistics_in_multicast_packets` | Counter | Multicast ingress |
+
+**Labels**: `device`, `name` (interface name)
+
+**Example Query**:
+```promql
+# Interface traffic rate (bps)
+rate(interface_statistics_in_octets{name=~"ethernet-1/.*"}[5m]) * 8
+
+# Packets per second
+rate(interface_statistics_in_packets[5m])
+```
+  </Tab>
+  
+  <Tab title="Error Counters">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_statistics_in_errors` | Counter | Ingress errors |
+| `interface_statistics_out_errors` | Counter | Egress errors |
+| `interface_statistics_in_discards` | Counter | Ingress drops |
+| `interface_statistics_out_discards` | Counter | Egress drops |
+| `interface_statistics_in_fcs_errors` | Counter | FCS errors |
+
+**Labels**: `device`, `name`
+
+**Example Query**:
+```promql
+# Error rate
+rate(interface_statistics_in_errors[5m])
+
+# Drop rate
+rate(interface_statistics_in_discards[5m])
+```
+  </Tab>
+  
+  <Tab title="Operational State">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_oper_state` | Gauge | Interface state (1=up, 0=down) |
+
+**Labels**: `device`, `name`
+
+**Example Query**:
+```promql
+# Interfaces that are down
+interface_oper_state == 0
+
+# Interface uptime (requires additional calculation)
+```
+  </Tab>
+  
+  <Tab title="Traffic Rates">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_traffic_rate_in_bps` | Gauge | Ingress rate (bps) |
+| `interface_traffic_rate_out_bps` | Gauge | Egress rate (bps) |
+
+**Labels**: `device`, `name`
+
+**Example Query**:
+```promql
+# Current traffic rates
+interface_traffic_rate_in_bps
+
+# Utilization (assuming 10G interface)
+(interface_traffic_rate_in_bps / 10000000000) * 100
+```
+  </Tab>
+</Tabs>
+
+### Subinterface Statistics
+
+<Accordion title="Subinterface Counters">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_subinterface_statistics_in_packets` | Counter | Subinterface ingress packets |
+| `interface_subinterface_statistics_out_packets` | Counter | Subinterface egress packets |
+| `interface_subinterface_statistics_in_octets` | Counter | Subinterface ingress bytes |
+| `interface_subinterface_statistics_out_octets` | Counter | Subinterface egress bytes |
+
+**Labels**: `device`, `name` (interface), `index` (subinterface ID)
+
+**Example Query**:
+```promql
+# Subinterface traffic
+rate(interface_subinterface_statistics_in_octets[5m]) * 8
+```
+</Accordion>
+
+### LAG/LACP Statistics
+
+<Accordion title="Link Aggregation">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `interface_lag_member_lacp_statistics_lacp_in_pkts` | Counter | LACP PDUs received |
+| `interface_lag_member_lacp_statistics_lacp_out_pkts` | Counter | LACP PDUs sent |
+| `interface_lag_member_lacp_statistics_lacp_rx_errors` | Counter | LACP receive errors |
+
+**Labels**: `device`, `name` (LAG interface), `member_name`
+
+**Example Query**:
+```promql
+# LACP packet rate
+rate(interface_lag_member_lacp_statistics_lacp_in_pkts[5m])
+
+# LACP errors
+interface_lag_member_lacp_statistics_lacp_rx_errors > 0
+```
+</Accordion>
+
+### Network Instance Metrics
+
+VRF and routing metrics from `/network-instance/`
+
+<Accordion title="Network Instance State">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `network_instance_oper_state` | Gauge | VRF operational state (1=up, 0=down) |
+
+**Labels**: `device`, `name` (network instance name)
+
+**Example Query**:
+```promql
+# All network instances
+network_instance_oper_state
+
+# Down VRFs
+network_instance_oper_state == 0
+```
+</Accordion>
+
+<Accordion title="Route Table Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `network_instance_route_table_ipv4_unicast_statistics_active_routes` | Gauge | Active IPv4 routes |
+| `network_instance_route_table_ipv4_unicast_statistics_total_routes` | Gauge | Total IPv4 routes |
+| `network_instance_route_table_ipv6_unicast_statistics_active_routes` | Gauge | Active IPv6 routes |
+| `network_instance_route_table_ipv6_unicast_statistics_total_routes` | Gauge | Total IPv6 routes |
+
+**Labels**: `device`, `name`
+
+**Example Query**:
+```promql
+# IPv4 routes per VRF
+network_instance_route_table_ipv4_unicast_statistics_active_routes
+
+# Total routes across all VRFs
+sum(network_instance_route_table_ipv4_unicast_statistics_active_routes)
+```
+</Accordion>
+
+<Accordion title="BGP Statistics">
+| Metric | Type | Description |
+|--------|------|-------------|
+| `network_instance_protocols_bgp_statistics_total_paths` | Gauge | Total BGP paths |
+| `network_instance_protocols_bgp_statistics_total_prefixes` | Gauge | Total BGP prefixes |
+| `network_instance_protocols_bgp_group_statistics_sent_messages` | Counter | BGP messages sent |
+| `network_instance_protocols_bgp_group_statistics_received_messages` | Counter | BGP messages received |
+
+**Labels**: `device`, `name` (network instance), `group_name`
+
+**Example Query**:
+```promql
+# BGP message rate
+rate(network_instance_protocols_bgp_group_statistics_sent_messages[5m])
+
+# Total BGP prefixes
+network_instance_protocols_bgp_statistics_total_prefixes
+```
+</Accordion>
+
+## Common Query Patterns
+
+### Traffic Analysis
+
+<CodeGroup>
+```promql Bits per Second
+# SROS port traffic
+rate(port_statistics_in_octets[5m]) * 8
+
+# SR Linux interface traffic
+rate(interface_statistics_in_octets[5m]) * 8
+```
+
+```promql Packets per Second
+# SROS
+rate(port_statistics_in_packets[5m])
+
+# SR Linux
+rate(interface_statistics_in_packets[5m])
+```
+
+```promql Utilization Percentage
+# Assuming 10Gbps interface
+(rate(port_statistics_in_octets[5m]) * 8 / 10000000000) * 100
+```
+
+```promql Top N Interfaces
+# Top 5 by traffic
+topk(5, rate(port_statistics_in_octets[5m]))
+
+# Bottom 5
+bottomk(5, rate(port_statistics_in_octets[5m]))
+```
+</CodeGroup>
+
+### Error Monitoring
+
+<CodeGroup>
+```promql Error Rate
+# Errors per second
+rate(port_statistics_in_errors[5m])
+
+# Error percentage
+(rate(port_statistics_in_errors[5m]) / 
+ rate(port_statistics_in_packets[5m])) * 100
+```
+
+```promql Identify Problems
+# Any interface with errors
+port_statistics_in_errors > 0
+
+# Interfaces with high error rate
+rate(port_statistics_in_errors[5m]) > 10
+```
+</CodeGroup>
+
+### Resource Monitoring
+
+<CodeGroup>
+```promql CPU Analysis
+# Average CPU
+avg(system_cpu)
+
+# Max CPU per device
+max by (device) (system_cpu)
+
+# CPU above threshold
+system_cpu > 80
+```
+
+```promql Memory Analysis
+# Memory percentage
+(system_memory_pools_in_use / system_memory_pools_available) * 100
+
+# Free memory in GB
+system_memory_pools_free / 1073741824
+```
+</CodeGroup>
+
+### Session Monitoring
+
+<CodeGroup>
+```promql Active Sessions
+# Total active sessions
+sum(subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+
+# Sessions per BNG
+sum by (device) (subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+```
+
+```promql Session Dynamics
+# Setup rate
+rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup[5m])
+
+# Failed sessions
+rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup_failed[5m])
+
+# Success rate
+(rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup[5m]) / 
+ (rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup[5m]) + 
+  rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup_failed[5m]))) * 100
+```
+</CodeGroup>
+
+## Discovering New Metrics
+
+### List All Available Metrics
+
+```bash
+# From Prometheus
+curl http://localhost:9090/api/v1/label/__name__/values | jq
+
+# From gNMIc exporter
+curl http://localhost:9273/metrics | grep "^[a-z]" | cut -d' ' -f1 | sort -u
+```
+
+### Explore Metric Labels
+
+```promql
+# All labels for a metric
+group by (__name__, device, port_id) (port_statistics_in_packets)
+
+# Unique devices
+count by (device) ({__name__=~".+"})
+
+# Unique ports on a device
+count by (port_id) (port_statistics_in_packets{device="bng1"})
+```
+
+### Find Metrics by Pattern
+
+```promql
+# All CPU metrics
+{__name__=~".*cpu.*"}
+
+# All BGP metrics
+{__name__=~".*bgp.*"}
+
+# All counters (assuming naming convention)
+{__name__=~".*_total$"}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Prometheus Queries" icon="database" href="/telemetry/prometheus">
+    Learn more about PromQL syntax and functions
+  </Card>
+  
+  <Card title="Dashboard Guide" icon="chart-line" href="/telemetry/dashboards">
+    Use these metrics in Grafana dashboards
+  </Card>
+</CardGroup>

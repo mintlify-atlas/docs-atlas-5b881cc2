@@ -1,0 +1,603 @@
+---
+title: Prometheus Configuration
+description: Configure and use Prometheus for storing and querying telemetry metrics
+---
+
+# Prometheus Setup
+
+Prometheus is the time-series database that stores and queries metrics collected by gNMIc.
+
+## Overview
+
+**Prometheus** is an open-source monitoring and alerting toolkit designed for reliability and scalability:
+
+- Pull-based metric collection (scraping)
+- Powerful query language (PromQL)
+- Time-series data storage
+- Built-in alerting capabilities
+- Service discovery support
+
+**Lab Configuration**:
+- **Container**: prometheus
+- **Management IP**: 10.77.1.13
+- **Web UI Port**: 9090
+- **Config File**: `configs/prometheus/prometheus.yml`
+
+## Configuration File
+
+The Prometheus configuration is minimal and focused:
+
+<CodeGroup>
+```yaml configs/prometheus/prometheus.yml
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "gnmic"
+    static_configs:
+      - targets: ["gnmic:9273"]
+```
+</CodeGroup>
+
+### Configuration Breakdown
+
+<Tabs>
+  <Tab title="Global Settings">
+```yaml
+global:
+  scrape_interval: 5s
+```
+
+**scrape_interval**: How often Prometheus polls metric endpoints
+
+- Default: 5 seconds
+- Matches gNMIc's `sample-interval` for consistent data
+- Lower values = more data points but higher storage/CPU usage
+- Higher values = less granular but more efficient
+</Tab>
+  
+  <Tab title="Scrape Configs">
+```yaml
+scrape_configs:
+  - job_name: "gnmic"
+    static_configs:
+      - targets: ["gnmic:9273"]
+```
+
+**job_name**: Label applied to all metrics from this job
+**targets**: List of `host:port` to scrape
+
+- `gnmic:9273` - gNMIc Prometheus exporter endpoint
+- Uses Docker DNS for name resolution
+- Port 9273 is gNMIc's default Prometheus export port
+</Tab>
+</Tabs>
+
+## Data Retention
+
+Prometheus stores data with default retention settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Retention time | 15 days | How long to keep data |
+| Retention size | No limit | Maximum storage size |
+| Storage path | `/prometheus` | Data directory |
+
+To customize retention, modify the container command in `lab.yml`:
+
+```yaml
+prometheus:
+  kind: linux
+  image: prom/prometheus
+  cmd: >
+    --config.file=/etc/prometheus/prometheus.yml
+    --storage.tsdb.retention.time=30d
+    --storage.tsdb.retention.size=10GB
+```
+
+## Access Prometheus Web UI
+
+Prometheus includes a built-in web interface:
+
+```
+http://localhost:9090
+```
+
+### Key Web UI Features
+
+<Tabs>
+  <Tab title="Graph">
+**Execute PromQL queries and visualize results**
+
+1. Navigate to **Graph** tab
+2. Enter a query in the expression box
+3. Click **Execute**
+4. View table or graph visualization
+
+Example queries:
+```promql
+# All CPU metrics
+system_cpu
+
+# Interface statistics for a specific device
+port_statistics_in_packets{device="bng1"}
+
+# Rate of change over 5 minutes
+rate(port_statistics_in_packets[5m])
+```
+</Tab>
+  
+  <Tab title="Targets">
+**Monitor scrape target health**
+
+- Navigate to **Status** → **Targets**
+- Shows all configured scrape jobs
+- Displays:
+  - Target endpoint
+  - State (UP/DOWN)
+  - Labels
+  - Last scrape time and duration
+  - Errors (if any)
+
+**Expected status**: `gnmic (1/1 up)`
+</Tab>
+  
+  <Tab title="Service Discovery">
+**View discovered targets**
+
+- Navigate to **Status** → **Service Discovery**
+- Shows targets from static configs
+- Useful for debugging configuration
+</Tab>
+  
+  <Tab title="Configuration">
+**View active configuration**
+
+- Navigate to **Status** → **Configuration**
+- Displays current `prometheus.yml` content
+- Shows all runtime settings
+</Tab>
+</Tabs>
+
+## PromQL Query Language
+
+Prometheus Query Language (PromQL) is used to query and aggregate metrics.
+
+### Basic Queries
+
+<CodeGroup>
+```promql Simple Selector
+# All samples of a metric
+system_cpu
+
+# Filter by label
+system_cpu{device="bng1"}
+
+# Multiple label filters
+port_statistics_in_packets{device="bng1",port_id="1/1/c1/1"}
+```
+
+```promql Range Vectors
+# Last 5 minutes of data
+system_cpu[5m]
+
+# Last hour
+port_statistics_in_packets[1h]
+```
+
+```promql Operators
+# Greater than
+system_cpu > 80
+
+# Arithmetic
+system_cpu / 100
+
+# Regex match
+port_statistics_in_packets{port_id=~"1/1/.*"}
+```
+</CodeGroup>
+
+### Common Functions
+
+<Accordion title="rate() - Calculate per-second rate">
+```promql
+# Packets per second
+rate(port_statistics_in_packets[5m])
+
+# Bits per second (assuming byte counter * 8)
+rate(port_statistics_in_octets[5m]) * 8
+```
+
+Use for counter metrics that always increase.
+</Accordion>
+
+<Accordion title="irate() - Instant rate">
+```promql
+# Instantaneous rate using last two samples
+irate(port_statistics_in_packets[5m])
+```
+
+More responsive than `rate()` but can be volatile.
+</Accordion>
+
+<Accordion title="sum() - Aggregate values">
+```promql
+# Total packets across all interfaces
+sum(port_statistics_in_packets)
+
+# Total per device
+sum by (device) (port_statistics_in_packets)
+
+# Total per device and port
+sum by (device, port_id) (port_statistics_in_packets)
+```
+</Accordion>
+
+<Accordion title="avg() - Average values">
+```promql
+# Average CPU across all devices
+avg(system_cpu)
+
+# Average per device
+avg by (device) (system_cpu)
+```
+</Accordion>
+
+<Accordion title="increase() - Total increase">
+```promql
+# Total packets in last 5 minutes
+increase(port_statistics_in_packets[5m])
+```
+
+Like `rate()` but returns total change, not per-second.
+</Accordion>
+
+### Example Queries for BNG Lab
+
+<CodeGroup>
+```promql System Health
+# CPU utilization by device
+system_cpu{device=~"bng.*"}
+
+# Memory usage percentage
+(system_memory_pools_in_use / system_memory_pools_available) * 100
+
+# Devices with high CPU
+system_cpu > 80
+```
+
+```promql Interface Statistics
+# Ingress traffic rate (bps)
+rate(port_statistics_in_octets[5m]) * 8
+
+# Egress traffic rate (bps)
+rate(port_statistics_out_octets[5m]) * 8
+
+# Top 5 interfaces by traffic
+topk(5, rate(port_statistics_in_octets[5m]))
+
+# Interface utilization percentage (assuming 10G interface)
+(rate(port_statistics_in_octets[5m]) * 8 / 10000000000) * 100
+```
+
+```promql BNG Sessions
+# Current IPoE sessions
+subscriber_mgmt_local_user_db_ipoe_session_stats_current
+
+# Total sessions per BNG
+sum by (device) (subscriber_mgmt_local_user_db_ipoe_session_stats_current)
+
+# Peak sessions in last hour
+max_over_time(subscriber_mgmt_local_user_db_ipoe_session_stats_current[1h])
+```
+
+```promql Error Rates
+# Interface errors per second
+rate(port_statistics_in_errors[5m])
+
+# Interfaces with errors
+port_statistics_in_errors > 0
+
+# Error rate as percentage of total packets
+(rate(port_statistics_in_errors[5m]) / rate(port_statistics_in_packets[5m])) * 100
+```
+</CodeGroup>
+
+## Querying from Command Line
+
+You can query Prometheus using its HTTP API:
+
+<CodeGroup>
+```bash Instant Query
+# Query current value
+curl -G http://localhost:9090/api/v1/query \
+  --data-urlencode 'query=system_cpu{device="bng1"}'
+```
+
+```bash Range Query
+# Query time range
+curl -G http://localhost:9090/api/v1/query_range \
+  --data-urlencode 'query=system_cpu' \
+  --data-urlencode 'start=2024-01-01T00:00:00Z' \
+  --data-urlencode 'end=2024-01-01T01:00:00Z' \
+  --data-urlencode 'step=15s'
+```
+
+```bash Label Values
+# Get all devices
+curl http://localhost:9090/api/v1/label/device/values
+
+# Get all port IDs
+curl http://localhost:9090/api/v1/label/port_id/values
+```
+
+```bash Metadata
+# List all metrics
+curl http://localhost:9090/api/v1/label/__name__/values
+
+# Get metric metadata
+curl http://localhost:9090/api/v1/metadata
+```
+</CodeGroup>
+
+## Monitoring Prometheus
+
+### Check Scrape Health
+
+```bash
+# View Prometheus logs
+sudo docker logs prometheus
+
+# Check targets via API
+curl http://localhost:9090/api/v1/targets | jq
+
+# Expected output: "health": "up" for gnmic target
+```
+
+### Query Statistics
+
+```promql
+# Prometheus metrics about itself
+prometheus_tsdb_head_series          # Number of time series
+prometheus_tsdb_head_samples_appended_total  # Samples added
+rate(prometheus_tsdb_head_samples_appended_total[5m])  # Sample rate
+
+# Storage metrics
+prometheus_tsdb_storage_blocks_bytes  # Storage size
+prometheus_tsdb_head_chunks          # Active chunks in memory
+```
+
+### Verify Data Collection
+
+```bash
+# Test gNMIc endpoint from Prometheus container
+sudo docker exec prometheus wget -O- http://gnmic:9273/metrics | head
+
+# Count metrics available
+sudo docker exec prometheus wget -O- http://gnmic:9273/metrics | grep -c "^[a-z]"
+```
+
+## Performance Tuning
+
+### Adjust Scrape Interval
+
+```yaml
+global:
+  scrape_interval: 10s  # Less frequent scraping
+  
+scrape_configs:
+  - job_name: "gnmic"
+    scrape_interval: 5s   # Override for specific job
+    static_configs:
+      - targets: ["gnmic:9273"]
+```
+
+### Scrape Timeout
+
+```yaml
+global:
+  scrape_timeout: 10s  # Max time to wait for scrape
+
+scrape_configs:
+  - job_name: "gnmic"
+    scrape_timeout: 5s   # Job-specific timeout
+    static_configs:
+      - targets: ["gnmic:9273"]
+```
+
+### Relabeling
+
+```yaml
+scrape_configs:
+  - job_name: "gnmic"
+    static_configs:
+      - targets: ["gnmic:9273"]
+    
+    # Add custom labels
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'telemetry-collector'
+    
+    # Drop high-cardinality metrics
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'expensive_metric_.*'
+        action: drop
+```
+
+## Troubleshooting
+
+<Accordion title="Target is DOWN">
+**Problem**: gNMIc target shows as DOWN in Prometheus
+
+**Check list**:
+1. Verify gNMIc is running:
+   ```bash
+   sudo docker ps | grep gnmic
+   ```
+
+2. Test connectivity from Prometheus:
+   ```bash
+   sudo docker exec prometheus wget -O- http://gnmic:9273/metrics
+   ```
+
+3. Check Prometheus logs:
+   ```bash
+   sudo docker logs prometheus | grep gnmic
+   ```
+
+4. Verify configuration:
+   ```bash
+   sudo docker exec prometheus cat /etc/prometheus/prometheus.yml
+   ```
+</Accordion>
+
+<Accordion title="No data for queries">
+**Problem**: Queries return empty results
+
+**Solutions**:
+1. Check if metrics exist:
+   ```bash
+   curl http://localhost:9273/metrics | grep system_cpu
+   ```
+
+2. Verify scraping is working (Targets page should show UP)
+
+3. Check query syntax and label filters:
+   ```promql
+   # Wrong (no such label)
+   system_cpu{host="bng1"}
+   
+   # Correct
+   system_cpu{device="bng1"}
+   ```
+
+4. Ensure time range includes data points
+</Accordion>
+
+<Accordion title="High memory usage">
+**Problem**: Prometheus container using excessive memory
+
+**Solutions**:
+1. Reduce retention:
+   ```bash
+   --storage.tsdb.retention.time=7d
+   --storage.tsdb.retention.size=5GB
+   ```
+
+2. Increase scrape interval in `prometheus.yml`:
+   ```yaml
+   global:
+     scrape_interval: 15s
+   ```
+
+3. Drop unused metrics in gNMIc or Prometheus config
+
+4. Monitor series cardinality:
+   ```promql
+   prometheus_tsdb_head_series
+   ```
+</Accordion>
+
+<Accordion title="Slow queries">
+**Problem**: PromQL queries taking too long
+
+**Solutions**:
+1. Reduce query time range
+2. Use recording rules for expensive queries (requires config reload)
+3. Add more specific label filters
+4. Use `irate()` instead of `rate()` for recent data
+5. Limit results with `topk()` or `bottomk()`
+</Accordion>
+
+## Integration with Grafana
+
+Prometheus is pre-configured as a Grafana datasource:
+
+<CodeGroup>
+```yaml configs/grafana/datasource.yml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+```
+</CodeGroup>
+
+**Access in Grafana**:
+1. Navigate to **Configuration** → **Data Sources**
+2. Select **Prometheus**
+3. Click **Test** to verify connection
+
+<Note>
+Grafana uses the same PromQL query language. Queries in Prometheus Web UI can be copied directly to Grafana panels.
+</Note>
+
+## Advanced Configuration
+
+### Multiple Scrape Targets
+
+To scrape additional exporters:
+
+```yaml
+scrape_configs:
+  - job_name: "gnmic"
+    static_configs:
+      - targets: ["gnmic:9273"]
+  
+  - job_name: "node_exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+  
+  - job_name: "custom_exporter"
+    static_configs:
+      - targets:
+          - "exporter1:8080"
+          - "exporter2:8080"
+```
+
+### Service Discovery
+
+For dynamic environments:
+
+```yaml
+scrape_configs:
+  - job_name: "docker"
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+```
+
+### Recording Rules
+
+Pre-compute expensive queries:
+
+```yaml
+groups:
+  - name: bng_metrics
+    interval: 30s
+    rules:
+      - record: interface_bps_in
+        expr: rate(port_statistics_in_octets[5m]) * 8
+      
+      - record: interface_bps_out
+        expr: rate(port_statistics_out_octets[5m]) * 8
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Grafana Dashboards" icon="chart-line" href="/telemetry/grafana">
+    Visualize metrics with pre-built dashboards
+  </Card>
+  
+  <Card title="Available Metrics" icon="list" href="/telemetry/available-metrics">
+    Complete catalog of Nokia SROS metrics
+  </Card>
+</CardGroup>

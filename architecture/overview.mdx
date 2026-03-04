@@ -1,0 +1,313 @@
+---
+title: 'Architecture Overview'
+description: 'High-level architecture of the Nokia BNG Lab neutral network environment'
+---
+
+## Introduction
+
+The Nokia BNG Lab implements a **neutral network (Red Neutral)** architecture that simulates a real-world multi-ISP environment with shared transport infrastructure. This design demonstrates how multiple ISPs can provide services to subscribers through a common access network while maintaining service independence.
+
+## Architecture Design
+
+The lab implements a dual-ISP architecture where two independent BNG routers (BNG1 and BNG2) provide subscriber services through a shared Layer 2 transport network.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         RED NEUTRAL - BNG LAB                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│    ┌─────────┐         ┌─────────┐         ┌─────────┐                 │
+│    │  BNG1   │◄───────►│   TX    │◄───────►│  BNG2   │                 │
+│    │SR-7     │         │SR Linux │         │ SR-7    │                 │
+│    └────┬────┘         └────┬────┘         └────┬────┘                 │
+│         │                   │                   │                       │
+│         │              ┌────┴────┐              │                       │
+│         │              │ Switch  │              │                       │
+│         │              │ IXR-ec  │              │                       │
+│         │              └────┬────┘              │                       │
+│         │                   │                   │                       │
+│         │              ┌────┴────┐              │                       │
+│    ┌────┴────┐         │   OLT   │         ┌────┴────┐                 │
+│    │  iPerf  │         │ IXR-ec  │         │ RADIUS  │                 │
+│    └─────────┘         └────┬────┘         └─────────┘                 │
+│                             │                                           │
+│                     ┌───────┴───────┐                                   │
+│                     │               │                                   │
+│                 ┌───┴───┐       ┌───┴───┐                              │
+│                 │ ONT1  │       │ ONT2  │                              │
+│                 └───┬───┘       └───────┘                              │
+│                     │                                                   │
+│                 ┌───┴───┐                                              │
+│                 │  PC1  │                                              │
+│                 └───────┘                                              │
+│                                                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TELEMETRÍA: gNMIc → Prometheus → Grafana                              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Network Sharing Model
+
+<Note>
+This architecture implements a **dual-ISP shared transport** model, where BNG1 and BNG2 represent independent ISPs sharing common access infrastructure (TX switch, OLT, and fiber).
+</Note>
+
+### Key Characteristics
+
+- **Independent Service Providers**: BNG1 and BNG2 operate as separate ISPs with independent:
+  - Subscriber management policies
+  - IP address pools (BNG1: 100.80.0.0/29, BNG2: 100.90.0.0/29)
+  - NAT policies and public IP assignments
+  - RADIUS authentication
+
+- **Shared Transport Network**: Layer 2 transport is shared using:
+  - VLAN-based service separation (VLAN 50 for BNG1, VLAN 60 for BNG2)
+  - QinQ encapsulation for service isolation
+  - Shared OLT and access infrastructure
+
+- **Service Independence**: Each ISP maintains full control over subscriber services without L3 routing protocols (IS-IS, MPLS) in the transport network
+
+## Core Components
+
+### BNG Routers (ISP Service Edge)
+
+<Accordion title="BNG1 - ISP 1 Service Router">
+**Device**: Nokia SR-7 (SR-SIM)
+- **Management IP**: 10.77.1.2
+- **Role**: Primary BNG for ISP 1 subscribers
+- **Hardware**:
+  - IOM5-e with ME6-100gb-qsfp28 MDA (Slot 1)
+  - IOM4-e-b with ISA2-bb for NAT (Slot 2)
+- **Key Services**:
+  - IPoE/PPPoE subscriber termination
+  - DHCPv4/v6 server pools
+  - Deterministic NAT44 (99.99.99.99)
+  - RADIUS authentication
+  - gNMI telemetry export
+</Accordion>
+
+<Accordion title="BNG2 - ISP 2 Service Router">
+**Device**: Nokia SR-7 (SR-SIM)
+- **Management IP**: 10.77.1.3
+- **Role**: Secondary BNG for ISP 2 subscribers
+- **Hardware**: Identical to BNG1
+- **Key Services**:
+  - Independent subscriber management
+  - Separate NAT pool (100.100.100.100)
+  - Independent RADIUS policies
+  - Service differentiation from BNG1
+</Accordion>
+
+### Transport Network
+
+<Accordion title="TX Switch - Transport Aggregation">
+**Device**: Nokia SR Linux (IXR)
+- **Management IP**: 10.77.1.16
+- **Role**: Core transport switch connecting both BNGs
+- **Function**:
+  - Layer 2 VLAN switching between BNGs and access network
+  - Service aggregation point
+  - No L3 routing (pure L2 transport)
+</Accordion>
+
+<Accordion title="Switch - Access Aggregation">
+**Device**: Nokia IXR-ec (7250)
+- **Management IP**: 10.77.1.4
+- **Role**: Aggregation between TX and OLT
+- **Services**:
+  - VPLS service ID 50 (BNG1 traffic)
+  - VPLS service ID 60 (BNG2 traffic)
+  - QinQ encapsulation handling
+</Accordion>
+
+<Accordion title="OLT - Optical Line Terminal">
+**Device**: Nokia IXR-ec
+- **Management IP**: 10.77.1.5
+- **Role**: Access network termination
+- **Function**:
+  - ONT connectivity (fiber simulation)
+  - VLAN tagging for subscriber traffic
+  - Service demarcation point
+</Accordion>
+
+### Subscriber Devices
+
+<Accordion title="ONT1 - IPoE Subscriber">
+**Device**: Linux container (ont-ds:0.2)
+- **Management IP**: 10.77.1.6
+- **Connection Type**: IPoE (DHCP)
+- **VLAN**: 150
+- **MAC**: 00:D0:F6:01:01:01
+- **Connects to**: BNG1
+</Accordion>
+
+<Accordion title="ONT2 - PPPoE Subscriber">
+**Device**: Linux container (ont-ds:0.2)
+- **Management IP**: 10.77.1.7
+- **Connection Type**: PPPoE
+- **Credentials**: test@test.com / testlab123
+- **VLAN**: 150
+- **MAC**: 00:D0:F6:01:01:02
+- **Connects to**: BNG2
+</Accordion>
+
+### Support Infrastructure
+
+<Accordion title="RADIUS Server">
+**Device**: FreeRADIUS on Linux
+- **Management IP**: 10.77.1.10
+- **Role**: AAA server for both BNGs
+- **Functions**:
+  - Subscriber authentication
+  - Profile assignment (SLA, QoS)
+  - Accounting records
+  - Change of Authorization (CoA)
+</Accordion>
+
+<Accordion title="iPerf Server">
+**Device**: Network multitool container
+- **Management IP**: 10.77.1.15
+- **Interfaces**:
+  - eth1: 172.19.1.1/30 (BNG1 connection)
+  - eth2: 172.20.1.1/30 (BNG2 connection)
+- **Role**: Traffic generation and testing endpoint
+</Accordion>
+
+## Telemetry Architecture
+
+The lab implements a complete observability stack based on streaming telemetry:
+
+### Data Collection Flow
+
+```
+BNG1/BNG2 (gNMI) → gNMIc (Collector) → Prometheus (TSDB) → Grafana (Visualization)
+```
+
+<Accordion title="gNMIc - Telemetry Collector">
+**Management IP**: 10.77.1.12
+- **Protocol**: gNMI (gRPC Network Management Interface)
+- **Sources**: BNG1, BNG2, Switch, OLT
+- **Function**: Subscribe to real-time metrics and forward to Prometheus
+- **Metrics Collected**:
+  - Interface statistics
+  - CPU/Memory utilization
+  - Subscriber session counts
+  - NAT translations
+</Accordion>
+
+<Accordion title="Prometheus - Time Series Database">
+**Management IP**: 10.77.1.13
+- **Port**: 9090
+- **Role**: Metrics storage and querying
+- **Retention**: Configurable time-series data
+- **Scrape Interval**: Defined per target
+</Accordion>
+
+<Accordion title="Grafana - Visualization">
+**Management IP**: 10.77.1.14
+- **Port**: 3030
+- **Credentials**: admin/admin
+- **Dashboards**:
+  - BNG subscriber statistics
+  - Interface throughput
+  - System health metrics
+  - NAT pool utilization
+</Accordion>
+
+## RADIUS Integration
+
+### Authentication Flow
+
+Both BNGs integrate with the centralized RADIUS server for subscriber management:
+
+<Info>
+**RADIUS Server**: 10.77.1.10
+- **Shared Secret**: testlab123
+- **Transport**: Management VRF
+- **Features**: CoA (Change of Authorization) enabled
+</Info>
+
+### RADIUS Policies
+
+**BNG1 Configuration**:
+- Source address: 10.77.1.2
+- Router instance: management
+- Retry count: 5
+- Includes accounting and authentication policies
+
+**BNG2 Configuration**:
+- Source address: 10.77.1.3
+- Identical policy structure with independent session tracking
+
+### Subscriber Profiles
+
+RADIUS returns subscriber-specific attributes:
+- **SLA Profile**: "100M" (100 Mbps bandwidth)
+- **Subscriber Profile**: "subprofile" (accounting enabled)
+- **IP Pools**: DHCP pool assignment (cgnat, IPv6)
+- **QoS**: Queue policies and rate limiting
+
+## Management Network
+
+<Note>
+All devices connect to a common management network for out-of-band access and monitoring.
+</Note>
+
+### Management Subnet: 10.77.1.0/24
+
+| Device | IP Address | SSH Port | gRPC Port | NETCONF Port |
+|--------|-----------|----------|-----------|-------------|
+| BNG1 | 10.77.1.2 | 56661 | 57400 | 830 |
+| BNG2 | 10.77.1.3 | 56664 | 57400 | 830 |
+| Switch | 10.77.1.4 | 56667 | 57400 | 830 |
+| OLT | 10.77.1.5 | 56678 | 57400 | 830 |
+| ONT1 | 10.77.1.6 | 56673 | - | - |
+| ONT2 | 10.77.1.7 | 56674 | - | - |
+| RADIUS | 10.77.1.10 | 22 | - | - |
+| gNMIc | 10.77.1.12 | - | - | - |
+| Prometheus | 10.77.1.13 | - | - | - |
+| Grafana | 10.77.1.14 | - | - | - |
+| iPerf | 10.77.1.15 | 56675 | - | - |
+| TX | 10.77.1.16 | 56676 | - | - |
+| PC1 | 10.77.1.17 | 56677 | - | - |
+
+### Management Access
+
+- **Protocol**: SSH, gRPC, NETCONF
+- **Credentials**: admin / lab123
+- **Network**: Docker bridge network "lab"
+- **Container Runtime**: Docker via Containerlab
+
+## Design Considerations
+
+### Why L2-Only Transport?
+
+<Info>
+The lab uses **Layer 2 transport services** because in many real-world scenarios, the transport network is **leased infrastructure** from a third party. This eliminates the need for IS-IS, MPLS, or other L3 routing protocols between ISPs and the access network.
+</Info>
+
+### Service Isolation
+
+- **VLAN Separation**: Each ISP uses dedicated VLANs (50, 60)
+- **QinQ Encapsulation**: Double tagging for service multiplexing
+- **Independent NAT**: Separate NAT pools and policies
+- **Dedicated VPRNs**: VPRN 9998 (NAT inside), VPRN 9999 (NAT outside)
+
+### Scalability
+
+The architecture supports:
+- Up to 131,071 subscribers per BNG
+- Multiple ISPs on shared infrastructure
+- Deterministic NAT with port block assignment
+- Dual-stack IPv4/IPv6 services
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Topology Details" icon="sitemap" href="/architecture/topology">
+    Explore detailed device inventory, connections, and port mappings
+  </Card>
+  <Card title="Network Flows" icon="arrow-right-arrow-left" href="/architecture/network-flow">
+    Understand subscriber authentication and traffic flows
+  </Card>
+</CardGroup>

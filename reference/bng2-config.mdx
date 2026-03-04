@@ -1,0 +1,290 @@
+---
+title: BNG2 Configuration Reference
+description: Complete Nokia BNG2 device configuration including system setup, RADIUS, NAT, DHCP, and subscriber management
+---
+
+# BNG2 Configuration Reference
+
+Complete configuration reference for the BNG2 (Nokia 7750 SR) router in the lab environment.
+
+## Overview
+
+**Device**: Nokia 7750 SR (BNG2)
+**Role**: Secondary Broadband Network Gateway
+**Management IP**: 10.77.1.3
+**System IP**: 1.1.1.1/32
+
+## Configuration Differences from BNG1
+
+BNG2 is configured almost identically to BNG1 with the following key differences:
+
+| Parameter | BNG1 | BNG2 |
+|-----------|------|------|
+| System Name | BNG1 | BNG2 |
+| RADIUS Source IP | 10.77.1.2 | 10.77.1.3 |
+| Inside Subnet | 100.80.0.0/29 | 100.90.0.0/29 |
+| NAT Pool | 99.99.99.99 | 100.100.100.100 |
+| iPerf Interface | 172.19.1.2/30 | 172.20.1.2/30 |
+
+<Accordion title="Full System Configuration">
+
+### Basic System Setup
+
+```sros
+# System Name
+/configure system name "BNG2"
+
+# Time Zone
+/configure system time zone standard name est
+
+# Management Interfaces
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+/configure system grpc rib-api admin-state enable
+
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# User Configuration
+/configure system security user-params local-user user "admin" password "lab123"
+/configure system security user-params local-user user "admin" access console true
+/configure system security user-params local-user user "admin" access ftp true
+/configure system security user-params local-user user "admin" access netconf true
+/configure system security user-params local-user user "admin" access grpc true
+/configure system security user-params local-user user "admin" console member ["administrative"]
+```
+
+</Accordion>
+
+<Accordion title="Hardware Configuration">
+
+### Cards and MDAs
+
+```sros
+# IOM Card
+/configure card 1 card-type iom5-e
+/configure card 1 mda 1 mda-type me6-100gb-qsfp28
+
+# ISA Card for NAT
+/configure card 2 card-type iom4-e-b
+/configure card 2 mda 1 mda-type isa2-bb
+
+# SFM
+/configure sfm 1 sfm-type m-sfm6-7/12
+```
+
+### Port Configuration
+
+```sros
+# Port to TX/Switch (Subscriber Traffic)
+/configure port 1/1/c1 admin-state enable
+/configure port 1/1/c1 connector breakout c1-100g
+/configure port 1/1/c1/1 admin-state enable
+/configure port 1/1/c1/1 ethernet mode hybrid
+/configure port 1/1/c1/1 ethernet encap-type qinq
+
+# Port to iPerf Server (Internet)
+/configure port 1/1/c2 admin-state enable
+/configure port 1/1/c2 connector breakout c1-100g
+/configure port 1/1/c2/1 admin-state enable
+/configure port 1/1/c2/1 ethernet mode hybrid
+```
+
+</Accordion>
+
+<Accordion title="RADIUS Configuration">
+
+### Management Router RADIUS
+
+```sros
+/configure router "management" radius
+/configure router "management" radius server "radius" address 10.77.1.10
+/configure router "management" radius server "radius" secret testlab123
+/configure router "management" radius server "radius" accept-coa true
+```
+
+### RADIUS Server Policy
+
+```sros
+/configure aaa radius server-policy "radius_policy"
+/configure aaa radius server-policy "radius_policy" servers retry-count 5
+/configure aaa radius server-policy "radius_policy" servers router-instance "management"
+/configure aaa radius server-policy "radius_policy" servers source-address 10.77.1.3
+/configure aaa radius server-policy "radius_policy" servers server 1 server-name "radius"
+/configure aaa radius server-policy "radius_policy" acct-on-off
+```
+
+</Accordion>
+
+<Accordion title="NAT Configuration (BNG2-Specific)">
+
+### NAT Filter
+
+```sros
+/configure filter ip-filter "10" default-action accept
+/configure filter ip-filter "10" entry 1 match dst-ip address 100.90.0.0
+/configure filter ip-filter "10" entry 1 match dst-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 1 action accept
+/configure filter ip-filter "10" entry 2 match src-ip address 100.90.0.0
+/configure filter ip-filter "10" entry 2 match src-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 2 action nat
+```
+
+### VPRN 9999 (NAT Outside)
+
+```sros
+/configure service vprn "9999" admin-state enable
+/configure service vprn "9999" customer "1"
+/configure service vprn "9999" autonomous-system 65520
+/configure service vprn "9999" nat outside
+/configure service vprn "9999" nat outside pool "dtpool" admin-state enable
+/configure service vprn "9999" nat outside pool "dtpool" type large-scale
+/configure service vprn "9999" nat outside pool "dtpool" nat-group 1
+/configure service vprn "9999" nat outside pool "dtpool" mode napt
+/configure service vprn "9999" nat outside pool "dtpool" large-scale subscriber-limit 8
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic port-reservation 64
+/configure service vprn "9999" nat outside pool "dtpool" address-range 100.100.100.100 end 100.100.100.100
+
+# Interface to iPerf
+/configure service vprn "9999" interface "to_iperf" admin-state enable
+/configure service vprn "9999" interface "to_iperf" ipv4 primary address 172.20.1.2
+/configure service vprn "9999" interface "to_iperf" ipv4 primary prefix-length 30
+/configure service vprn "9999" interface "to_iperf" sap 1/1/c2/1:0 admin-state enable
+```
+
+### VPRN 9998 (NAT Inside)
+
+```sros
+/configure service vprn "9998" admin-state enable
+/configure service vprn "9998" customer "1"
+/configure service vprn "9998" nat inside
+/configure service vprn "9998" nat inside large-scale nat44 max-subscriber-limit 8
+/configure service vprn "9998" nat inside large-scale nat44 deterministic
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol"
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" admin-state enable
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" map 100.90.0.0 to 100.90.0.7
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" map 100.90.0.0 to 100.90.0.7 first-outside-address 100.100.100.100
+```
+
+</Accordion>
+
+<Accordion title="DHCP Servers (BNG2-Specific)">
+
+### DHCPv4 Server
+
+```sros
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-gi-address
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-pool-from-client
+
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat"
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" minimum-free percent 3
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option dns-server ipv4-address [8.8.8.8 8.8.4.4]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option lease-time duration 315446399
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.90.0.0/29 options option default-router ipv4-address [100.90.0.1]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.90.0.0/29 address-range 100.90.0.2 end 100.90.0.7
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.90.0.0/29 exclude-addresses 100.90.0.1 end 100.90.0.1
+```
+
+### DHCPv6 Server
+
+```sros
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-pool-from-client
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-link-address scope subnet
+
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix minimum 56
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix maximum 64
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" options option dns-server ipv6-address [2001:4860:4860::8888 2001:4860:4860::8844]
+
+# WAN Host Prefix
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type wan-host true
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type pd false
+
+# Prefix Delegation
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type wan-host false
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type pd true
+```
+
+</Accordion>
+
+<Accordion title="Subscriber Interface (BNG2-Specific)">
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" wan-mode mode128
+
+# IPv4
+/configure service vprn "9998" subscriber-interface "services" ipv4 allow-unmatching-subnets true
+/configure service vprn "9998" subscriber-interface "services" ipv4 default-dns [8.8.8.8 8.8.4.4]
+/configure service vprn "9998" subscriber-interface "services" ipv4 address 100.90.0.1 prefix-length 29
+/configure service vprn "9998" subscriber-interface "services" ipv4 dhcp gi-address 100.90.0.1
+
+# IPv6
+/configure service vprn "9998" subscriber-interface "services" ipv6 allow-unmatching-prefixes true
+/configure service vprn "9998" subscriber-interface "services" ipv6 delegated-prefix-length variable
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:100::/56 host-type wan
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:200::/48 host-type pd
+/configure service vprn "9998" subscriber-interface "services" ipv6 link-local-address address fe80::7e20:64ff:fe84:8365
+```
+
+### Group Interface
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" radius-auth-policy "autpolicy"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp gi-address 100.90.0.1
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server emulated-server 100.90.0.1
+```
+
+</Accordion>
+
+## BNG2-Specific Parameters
+
+### NAT Configuration
+- **NAT Pool**: 100.100.100.100/32
+- **Inside Subnet**: 100.90.0.0/29 (100.90.0.2 - 100.90.0.7)
+- **Port Reservation**: 64 ports per subscriber
+- **Max Subscribers**: 8
+
+### DHCP Pools
+- **IPv4**: 100.90.0.2 - 100.90.0.7 (6 addresses)
+- **IPv6 WAN**: 2001:db8:100::/56 (same as BNG1)
+- **IPv6 PD**: 2001:db8:200::/48 (same as BNG1)
+
+### Network Connectivity
+- **iPerf Interface**: 172.20.1.2/30
+- **Gateway IP (IPv4)**: 100.90.0.1
+
+## Verification Commands
+
+```bash
+# Check NAT pool usage
+show service nat nat-policy "natpol" statistics
+
+# Check DHCP leases
+show service id 9998 dhcp lease-state
+
+# Check active subscribers
+show service active-subscribers
+
+# Check NAT sessions
+show service nat isa nat-group 1 statistics
+
+# Check DHCPv6 leases
+show service id 9998 dhcp6 lease-state
+```
+
+## Related Pages
+
+- [BNG1 Configuration](/reference/bng1-config)
+- [NAT Configuration](/reference/nat-configuration)
+- [IPoE Service](/reference/ipoe-service)
+- [PPPoE Service](/reference/pppoe-service)

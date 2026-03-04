@@ -1,0 +1,651 @@
+---
+title: Automation Scripts Reference
+description: Complete reference for deployment and automation scripts including GitHub deployment, configuration push, and verification scripts
+---
+
+# Automation Scripts Reference
+
+Complete reference for automation scripts used in the Nokia BNG Lab.
+
+## Overview
+
+The lab includes several automation scripts for deployment, configuration management, and verification:
+
+| Script | Purpose | Location |
+|--------|---------|----------|
+| deploy-github.sh | Initial GitHub deployment | ~/workspace/source/ |
+| push.sh | Quick push changes to GitHub | ~/workspace/source/ |
+| verify-pd.sh | Verify DHCPv6 Prefix Delegation | ~/workspace/source/configs/scripts/ |
+
+## deploy-github.sh
+
+### Purpose
+
+Initial setup and deployment of the lab to GitHub with automated GitHub Pages configuration.
+
+### Usage
+
+```bash
+cd ~/workspace/source
+./deploy-github.sh
+```
+
+<Accordion title="Complete Script">
+
+```bash
+#!/bin/bash
+
+# ============================================================================
+# Script de Despliegue Inicial para GitHub - Nokia BNG Lab
+# ============================================================================
+
+set -e
+
+# Colores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m' # No Color
+
+# Función para imprimir mensajes
+print_step() {
+    echo -e "${BLUE}[*]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
+print_info() {
+    echo -e "${CYAN}[i]${NC} $1"
+}
+
+# Banner
+clear
+echo -e "${BLUE}"
+cat << 'EOF'
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║    ███╗   ██╗ ██████╗ ██╗  ██╗██╗ █████╗     ██████╗ ███╗   ██╗ ██████╗    ║
+║    ████╗  ██║██╔═══██╗██║ ██╔╝██║██╔══██╗    ██╔══██╗████╗  ██║██╔════╝    ║
+║    ██╔██╗ ██║██║   ██║█████╔╝ ██║███████║    ██████╔╝██╔██╗ ██║██║  ███╗   ║
+║    ██║╚██╗██║██║   ██║██╔═██╗ ██║██╔══██║    ██╔══██╗██║╚██╗██║██║   ██║   ║
+║    ██║ ╚████║╚██████╔╝██║  ██╗██║██║  ██║    ██████╔╝██║ ╚████║╚██████╔╝   ║
+║    ╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝    ║
+║                                                                            ║
+║              Script de Despliegue Inicial a GitHub                         ║
+║                           ABEL PEREZ                                       ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+EOF
+echo -e "${NC}"
+
+# Verificar que estamos en el directorio correcto
+if [ ! -f "mkdocs.yml" ]; then
+    print_error "No se encontró mkdocs.yml en el directorio actual"
+    print_warning "Por favor, ejecuta este script desde la carpeta del laboratorio"
+    echo "  cd containerlab && ./deploy-github.sh"
+    exit 1
+fi
+
+if [ ! -f "lab.yml" ]; then
+    print_error "No se encontró lab.yml - Este no parece ser el directorio del lab"
+    exit 1
+fi
+
+print_success "Verificado: Directorio del laboratorio correcto"
+
+# ... (rest of script content)
+```
+
+</Accordion>
+
+### Features
+
+<AccordionGroup>
+<Accordion title="Pre-flight Checks">
+
+**Verifications**:
+1. Current directory is lab root
+2. `mkdocs.yml` and `lab.yml` exist
+3. Git is installed
+4. `.gitignore` protects license files
+
+**License Protection**:
+```bash
+# Auto-creates .gitignore with:
+configs/license/
+license/
+*.lic
+clab-*/
+site/
+```
+
+</Accordion>
+
+<Accordion title="Git Configuration">
+
+**Initializes**:
+- Git repository (if not exists)
+- User name and email
+- Remote repository URL
+- Main branch
+
+**Interactive Prompts**:
+```
+GitHub Username: [your-username]
+Repository Name: [nokia-bng-lab]
+Commit Message: [Initial commit - Nokia BNG Lab]
+```
+
+</Accordion>
+
+<Accordion title="GitHub Actions Workflow">
+
+Creates `.github/workflows/docs.yml` for automatic MkDocs deployment:
+
+```yaml
+name: Deploy MkDocs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material
+          pip install pymdown-extensions
+      - name: Build MkDocs
+        run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'site'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/deploy-pages@v4
+```
+
+</Accordion>
+
+<Accordion title="Final Output">
+
+```
+╔════════════════════════════════════════════════════════════════════════════╗
+¡DESPLIEGUE COMPLETADO!
+
+📋 Pasos para activar GitHub Pages:
+
+  1. Ve a: https://github.com/[user]/[repo]/settings/pages
+  2. En 'Build and deployment':
+     - Source: GitHub Actions
+  3. El workflow se ejecutará automáticamente
+
+🔗 URLs importantes:
+
+  📦 Repositorio:    https://github.com/[user]/[repo]
+  📖 Documentación:  https://[user].github.io/[repo]
+  ⚙️  Actions:        https://github.com/[user]/[repo]/actions
+
+📥 Para descargar el laboratorio:
+
+  git clone https://github.com/[user]/[repo].git
+
+💡 Para futuros cambios, usa: ./push.sh
+╔════════════════════════════════════════════════════════════════════════════╗
+```
+
+</Accordion>
+</AccordionGroup>
+
+## push.sh
+
+### Purpose
+
+Quick script to commit and push changes to GitHub after initial deployment.
+
+### Usage
+
+```bash
+# With custom commit message
+./push.sh "Added new feature"
+
+# Interactive (prompts for message)
+./push.sh
+
+# Auto-generated message
+./push.sh  # (if no message, uses timestamp)
+```
+
+<Accordion title="Complete Script">
+
+```bash
+#!/bin/bash
+
+# ============================================================================
+# Script de Push Rápido - Nokia BNG Lab
+# ============================================================================
+# Uso: ./push.sh "mensaje del commit"
+# ============================================================================
+
+set -e
+
+# Colores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+print_step() { echo -e "${BLUE}[*]${NC} $1"; }
+print_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+print_error() { echo -e "${RED}[✗]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
+
+# Banner compacto
+echo ""
+echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║${NC}       ${CYAN}Nokia BNG Lab - Push de Cambios${NC}                       ${BLUE}║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Verificaciones básicas
+if [ ! -f "mkdocs.yml" ] || [ ! -f "lab.yml" ]; then
+    print_error "Este script debe ejecutarse desde el directorio del laboratorio"
+    exit 1
+fi
+
+if [ ! -d ".git" ]; then
+    print_error "No es un repositorio Git. Ejecuta primero: ./deploy-github.sh"
+    exit 1
+fi
+
+# Verificar si hay cambios
+if git diff --quiet && git diff --staged --quiet; then
+    print_warning "No hay cambios pendientes para subir"
+    echo ""
+    echo "  Últimos commits:"
+    git log --oneline -5
+    echo ""
+    exit 0
+fi
+
+# Mostrar resumen de cambios
+print_step "Resumen de cambios:"
+echo ""
+echo -e "${CYAN}Archivos modificados:${NC}"
+git status --short | head -20
+CHANGES_COUNT=$(git status --short | wc -l)
+if [ "$CHANGES_COUNT" -gt 20 ]; then
+    echo "  ... y $(($CHANGES_COUNT - 20)) archivos más"
+fi
+echo ""
+
+# Obtener mensaje de commit
+if [ -n "$1" ]; then
+    COMMIT_MSG="$*"
+else
+    echo -e "${CYAN}Tipos de commit sugeridos:${NC}"
+    echo "  feat:     Nueva funcionalidad"
+    echo "  fix:      Corrección de bug"
+    echo "  docs:     Cambios en documentación"
+    echo "  config:   Cambios en configuración"
+    echo "  refactor: Refactorización de código"
+    echo ""
+    read -p "Mensaje del commit: " COMMIT_MSG
+    
+    if [ -z "$COMMIT_MSG" ]; then
+        COMMIT_MSG="update: $(date '+%Y-%m-%d %H:%M')"
+    fi
+fi
+
+# Agregar archivos (excluyendo licencias)
+print_step "Agregando archivos..."
+git add .
+
+# Remover licencias si se agregaron accidentalmente
+git reset -- configs/license/ 2>/dev/null || true
+git reset -- license/ 2>/dev/null || true
+git reset -- '*.lic' 2>/dev/null || true
+
+print_success "Archivos agregados"
+
+# Crear commit
+print_step "Creando commit..."
+git commit -m "$COMMIT_MSG"
+print_success "Commit creado: $COMMIT_MSG"
+
+# Push
+print_step "Subiendo a GitHub..."
+git push origin main
+
+echo ""
+echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}[✓] ¡Cambios subidos exitosamente!${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+echo ""
+```
+
+</Accordion>
+
+### Features
+
+**Auto-detection**:
+- Checks if changes exist
+- Shows change summary
+- Prevents pushing license files
+
+**Commit Message Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `config`: Configuration changes
+- `refactor`: Code refactoring
+
+**Safety Checks**:
+- Validates git repository
+- Removes license files from staging
+- Shows recent commits if no changes
+
+## verify-pd.sh
+
+### Purpose
+
+Verifies DHCPv6 Prefix Delegation configuration and status on ONTs and PCs.
+
+### Usage
+
+```bash
+cd ~/workspace/source/configs/scripts
+./verify-pd.sh
+```
+
+<Accordion title="Complete Script">
+
+```bash
+#!/bin/bash
+# Script de verificación de DHCPv6 con Prefix Delegation
+
+echo "=============================================="
+echo "Verificación de DHCPv6 con Prefix Delegation"
+echo "=============================================="
+echo ""
+
+# Colores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+check_pass() {
+    echo -e "${GREEN}[✓] $1${NC}"
+}
+
+check_fail() {
+    echo -e "${RED}[✗] $1${NC}"
+}
+
+check_warn() {
+    echo -e "${YELLOW}[!] $1${NC}"
+}
+
+# ============================================
+# Verificar en ONT1
+# ============================================
+echo "--- Verificando ONT1 ---"
+
+# Verificar odhcp6c
+if docker exec ont1 pgrep -f odhcp6c > /dev/null 2>&1; then
+    check_pass "odhcp6c está corriendo en ONT1"
+else
+    check_fail "odhcp6c NO está corriendo en ONT1"
+    echo "   Ejecutar: docker exec ont1 /home/user/start-dhcp6-pd.sh eth1.150 eth2 &"
+fi
+
+# Verificar IPv4
+ONT1_IPV4=$(docker exec ont1 ip -4 addr show eth1.150 2>/dev/null | grep "inet " | awk '{print $2}')
+if [ -n "$ONT1_IPV4" ]; then
+    check_pass "ONT1 tiene IPv4 WAN: $ONT1_IPV4"
+else
+    check_fail "ONT1 NO tiene IPv4 WAN"
+fi
+
+# Verificar IPv6 WAN
+ONT1_IPV6_WAN=$(docker exec ont1 ip -6 addr show eth1.150 scope global 2>/dev/null | grep "inet6" | head -1 | awk '{print $2}')
+if [ -n "$ONT1_IPV6_WAN" ]; then
+    check_pass "ONT1 tiene IPv6 WAN: $ONT1_IPV6_WAN"
+else
+    check_fail "ONT1 NO tiene IPv6 WAN (IA_NA)"
+fi
+
+# Verificar IPv6 LAN (PD)
+ONT1_IPV6_LAN=$(docker exec ont1 ip -6 addr show eth2 scope global 2>/dev/null | grep "inet6" | head -1 | awk '{print $2}')
+if [ -n "$ONT1_IPV6_LAN" ]; then
+    check_pass "ONT1 tiene IPv6 LAN (PD): $ONT1_IPV6_LAN"
+else
+    check_warn "ONT1 NO tiene IPv6 en LAN - verificar PD"
+fi
+
+# Verificar radvd
+if docker exec ont1 pgrep radvd > /dev/null 2>&1; then
+    check_pass "radvd está corriendo en ONT1"
+else
+    check_warn "radvd NO está corriendo en ONT1 - PC1 no recibirá prefijo"
+fi
+
+echo ""
+
+# ============================================
+# Verificar en PC1
+# ============================================
+echo "--- Verificando PC1 ---"
+
+PC1_IPV6=$(docker exec pc1 ip -6 addr show eth1 scope global 2>/dev/null | grep "inet6" | head -1 | awk '{print $2}')
+if [ -n "$PC1_IPV6" ]; then
+    check_pass "PC1 tiene IPv6 del prefijo delegado: $PC1_IPV6"
+else
+    check_warn "PC1 NO tiene IPv6 - ejecutar configuración:"
+    echo "   docker exec pc1 sysctl -w net.ipv6.conf.eth1.accept_ra=2"
+    echo "   docker exec pc1 ip link set eth1 up"
+fi
+
+echo ""
+echo "=============================================="
+echo "Verificación completa"
+echo ""
+echo "Para más detalles, ejecutar en los BNGs:"
+echo "  show service active-subscribers hierarchy"
+echo "  show service id 9998 dhcp6 summary"
+echo "  show service id 9998 dhcp6 lease-state"
+echo "=============================================="
+```
+
+</Accordion>
+
+### Checks Performed
+
+<AccordionGroup>
+<Accordion title="ONT1 Verification">
+
+**Checks**:
+1. odhcp6c process running
+2. IPv4 WAN address assigned
+3. IPv6 WAN address (IA_NA)
+4. IPv6 LAN address from PD
+5. radvd process running
+
+**Expected Output**:
+```
+[✓] odhcp6c está corriendo en ONT1
+[✓] ONT1 tiene IPv4 WAN: 100.80.0.2/29
+[✓] ONT1 tiene IPv6 WAN: 2001:db8:100::1/128
+[✓] ONT1 tiene IPv6 LAN (PD): 2001:db8:200:1::1/56
+[✓] radvd está corriendo en ONT1
+```
+
+</Accordion>
+
+<Accordion title="PC1 Verification">
+
+**Checks**:
+1. IPv6 address from SLAAC
+2. Address in delegated prefix range
+
+**Expected Output**:
+```
+[✓] PC1 tiene IPv6 del prefijo delegado: 2001:db8:200:1:xxxx:xxxx:xxxx:xxxx/64
+```
+
+</Accordion>
+
+<Accordion title="Troubleshooting Tips">
+
+If checks fail, the script provides remediation steps:
+
+```bash
+# Start DHCPv6 PD client on ONT1
+docker exec ont1 /home/user/start-dhcp6-pd.sh eth1.150 eth2 &
+
+# Enable IPv6 on PC1
+docker exec pc1 sysctl -w net.ipv6.conf.eth1.accept_ra=2
+docker exec pc1 ip link set eth1 up
+```
+
+</Accordion>
+</AccordionGroup>
+
+### BNG Verification Commands
+
+The script suggests running these commands on BNG:
+
+```bash
+# Show active subscribers with IPv6
+show service active-subscribers hierarchy
+
+# Show DHCPv6 summary
+show service id 9998 dhcp6 summary
+
+# Show DHCPv6 leases
+show service id 9998 dhcp6 lease-state
+
+# Show prefix delegation
+show service id 9998 dhcp6 lease-state prefix
+```
+
+## Script Locations
+
+```
+~/workspace/source/
+├── deploy-github.sh          # Initial GitHub deployment
+├── push.sh                    # Quick push to GitHub
+└── configs/
+    └── scripts/
+        └── verify-pd.sh         # DHCPv6 PD verification
+```
+
+## Common Workflows
+
+### Initial Setup
+
+```bash
+# 1. Deploy to GitHub
+cd ~/workspace/source
+./deploy-github.sh
+
+# 2. Enable GitHub Pages (follow instructions)
+# Go to: https://github.com/[user]/[repo]/settings/pages
+# Set Source: GitHub Actions
+
+# 3. Wait for deployment
+# Check: https://github.com/[user]/[repo]/actions
+```
+
+### Making Changes
+
+```bash
+# 1. Edit files
+vim docs/guides/my-guide.mdx
+
+# 2. Test locally (optional)
+mkdocs serve
+
+# 3. Push changes
+./push.sh "docs: added new guide"
+
+# 4. Verify deployment
+# Check: https://[user].github.io/[repo]
+```
+
+### Verifying Lab
+
+```bash
+# Check DHCPv6 PD
+cd ~/workspace/source/configs/scripts
+./verify-pd.sh
+
+# Check subscriber sessions
+docker exec bng1 sr_cli "show service active-subscribers"
+
+# Check NAT
+docker exec bng1 sr_cli "show service nat isa nat-group 1 statistics"
+```
+
+## Best Practices
+
+### Commit Messages
+
+Use conventional commit format:
+
+```
+feat: add new BNG configuration example
+fix: correct VLAN tagging in OLT config
+docs: update troubleshooting section
+config: adjust DHCP pool size
+refactor: reorganize NAT configuration
+```
+
+### Git Workflow
+
+1. **Always verify changes**: Review `git status` before committing
+2. **Small commits**: Commit related changes together
+3. **Test before push**: Run `mkdocs build` to catch errors
+4. **Never commit licenses**: Scripts auto-protect, but double-check
+
+### Script Maintenance
+
+Keep scripts updated:
+- Add new verification checks as needed
+- Update GitHub Actions workflow for new dependencies
+- Document any custom scripts in this page
+
+## Related Pages
+
+- [Deployment Guide](/guides/deploy)
+- [GitHub Pages Setup](/guides/github-pages)
+- [Troubleshooting](/guides/troubleshooting)

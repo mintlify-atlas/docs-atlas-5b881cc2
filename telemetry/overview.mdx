@@ -1,0 +1,328 @@
+---
+title: Telemetry Overview
+description: Understanding the Nokia BNG Lab telemetry stack architecture and components
+---
+
+# Telemetry Overview
+
+The Nokia BNG Lab includes a complete telemetry stack for real-time monitoring and visualization of network metrics using gNMI streaming telemetry.
+
+## Why Telemetry Matters
+
+Telemetry provides:
+
+- **Real-time visibility** into network performance and health
+- **Historical data** for trend analysis and capacity planning
+- **Automated monitoring** without polling overhead
+- **Granular metrics** at 5-second intervals
+- **Efficient streaming** using gRPC and Protocol Buffers
+
+Unlike traditional SNMP polling, gNMI streaming telemetry pushes data continuously from network devices, reducing CPU overhead and providing sub-second visibility into network operations.
+
+## Telemetry Architecture
+
+The lab uses a modern observability stack:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   TELEMETRY DATA FLOW                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────┐   gNMI Stream    ┌──────────┐               │
+│  │ BNG1/BNG2├─────────┐         │          │               │
+│  │ (SROS)   │         │         │          │               │
+│  └──────────┘         ├────────►│  gNMIc   │               │
+│                       │         │ Collector│               │
+│  ┌──────────┐         │         │          │               │
+│  │ Switch/OLT├────────┘         └────┬─────┘               │
+│  │ (SR Linux)│                       │                     │
+│  └──────────┘                        │                     │
+│                              Prometheus Export             │
+│                              (Port 9273)                   │
+│                                      │                     │
+│                                      ▼                     │
+│                              ┌──────────────┐              │
+│                              │  Prometheus  │              │
+│                              │  (TSDB)      │              │
+│                              │  Port 9090   │              │
+│                              └──────┬───────┘              │
+│                                     │                      │
+│                              PromQL Queries                │
+│                                     │                      │
+│                                     ▼                      │
+│                              ┌──────────────┐              │
+│                              │   Grafana    │              │
+│                              │ Dashboards   │              │
+│                              │  Port 3030   │              │
+│                              └──────────────┘              │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Components and Roles
+
+### gNMIc - Telemetry Collector
+
+**Role**: Subscribe to gNMI streams from Nokia devices and convert data to Prometheus format
+
+**Key Features**:
+- Auto-discovers Containerlab nodes via Docker socket
+- Maintains persistent gRPC connections
+- Processes and transforms telemetry data
+- Exposes metrics in Prometheus format
+
+**Container**: `gnmic` (10.77.1.12)  
+**Port**: 9273 (Prometheus exporter)  
+**Config**: `configs/gnmic/config.yml`
+
+<Note>
+gNMIc automatically discovers all Nokia nodes in the lab and subscribes to their telemetry streams without manual configuration.
+</Note>
+
+### Prometheus - Time Series Database
+
+**Role**: Store, query, and alert on time-series metrics data
+
+**Key Features**:
+- Scrapes metrics from gNMIc every 5 seconds
+- Stores historical data for trend analysis
+- Provides PromQL query language
+- High-performance time-series storage
+
+**Container**: `prometheus` (10.77.1.13)  
+**Port**: 9090 (Web UI)  
+**Config**: `configs/prometheus/prometheus.yml`
+
+### Grafana - Visualization Platform
+
+**Role**: Create dashboards and visualize telemetry data
+
+**Key Features**:
+- Pre-configured dashboards for SROS and SR Linux
+- Real-time metric visualization
+- Customizable panels and queries
+- Anonymous access enabled for easy viewing
+
+**Container**: `grafana` (10.77.1.14)  
+**Port**: 3030 (Web UI)  
+**Credentials**: admin/admin  
+**Config**: `configs/grafana/`
+
+## Data Flow Explained
+
+### 1. Telemetry Generation
+
+Nokia devices continuously generate telemetry data for subscribed paths:
+
+- **SROS devices** (BNG1, BNG2): Interface stats, BNG sessions, system metrics
+- **SR Linux devices** (Switch, OLT, TX): Port stats, CPU/memory, BGP statistics
+
+### 2. gNMI Streaming
+
+Devices push data to gNMIc via gRPC:
+
+```yaml
+# Streaming mode with 5-second intervals
+mode: stream
+stream-mode: sample
+sample-interval: 5s
+```
+
+### 3. Data Processing
+
+gNMIc applies processors to:
+- Remove path prefixes (e.g., `/state/`)
+- Extract labels from paths
+- Convert state values (up=1, down=0)
+- Group metrics by interface
+
+### 4. Prometheus Export
+
+gNMIc exposes processed metrics at `http://gnmic:9273/metrics`
+
+### 5. Metric Storage
+
+Prometheus scrapes gNMIc every 5 seconds and stores time-series data
+
+### 6. Visualization
+
+Grafana queries Prometheus and renders dashboards with real-time data
+
+## Available Telemetry Data
+
+### SROS Metrics (BNG1, BNG2)
+
+<Accordion title="Port Statistics">
+- Interface operational state
+- Ingress/egress packets and bytes
+- Ethernet frame counters
+- Error counters
+</Accordion>
+
+<Accordion title="System Metrics">
+- CPU utilization per slot
+- Memory usage and pools
+- Temperature sensors
+- Fan speeds
+</Accordion>
+
+<Accordion title="BNG Session Metrics">
+- Local user database (LUDB) entries
+- IPoE session counts
+- PPPoE session counts
+- VPLS SAP statistics
+</Accordion>
+
+<Accordion title="Routing Metrics">
+- BGP statistics and route counts
+- ISIS statistics
+- Route table entries (IPv4/IPv6)
+- Interface routing statistics
+</Accordion>
+
+### SR Linux Metrics (Switch, OLT, TX)
+
+<Accordion title="Platform Metrics">
+- CPU utilization per control slot
+- Memory usage
+- Application management stats
+</Accordion>
+
+<Accordion title="Interface Statistics">
+- Ethernet interface statistics
+- Subinterface counters
+- Operational state
+- Traffic rates
+</Accordion>
+
+<Accordion title="Protocol Statistics">
+- BGP neighbor statistics
+- Network instance route counts
+- LAG/LACP statistics
+</Accordion>
+
+## Getting Started with Telemetry
+
+### Step 1: Verify Stack is Running
+
+```bash
+# Check all telemetry containers are up
+sudo docker ps | grep -E "gnmic|prometheus|grafana"
+
+# Expected output: 3 running containers
+```
+
+### Step 2: Access Grafana
+
+Open your browser to:
+
+```
+http://localhost:3030
+```
+
+<Note>
+No login required - anonymous access is enabled. To access admin features, use credentials: **admin/admin**
+</Note>
+
+### Step 3: Explore Dashboards
+
+Navigate to **Dashboards** → **Browse** to see:
+
+- **SROS Dashboard**: BNG metrics, interface stats, system health
+- **SR Linux Telemetry**: Platform metrics, interface statistics
+
+### Step 4: Query Prometheus Directly
+
+Access Prometheus UI at:
+
+```
+http://localhost:9090
+```
+
+Try example queries:
+
+```promql
+# CPU usage across all devices
+system_cpu{}
+
+# Interface operational state
+port_oper_state
+
+# BNG session count
+subscriber_mgmt_local_user_db_ipoe_session_stats_current
+```
+
+### Step 5: Verify gNMI Subscriptions
+
+```bash
+# Check gNMIc logs
+sudo docker logs gnmic
+
+# Look for successful subscriptions
+# Example: "subscription initialized" for each device
+```
+
+## Telemetry Configuration Files
+
+All telemetry configuration is located in `configs/`:
+
+```
+configs/
+├── gnmic/
+│   └── config.yml          # gNMIc subscriptions and processors
+├── prometheus/
+│   └── prometheus.yml      # Scrape configuration
+└── grafana/
+    ├── datasource.yml      # Prometheus datasource
+    ├── dashboards.yml      # Dashboard provisioning
+    └── dashboards/
+        ├── SROS-Dashboard.json
+        └── srlinux-telemetry-lite.json
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure gNMIc" icon="gear" href="/telemetry/gnmic">
+    Learn about gNMI subscriptions and collectors
+  </Card>
+  
+  <Card title="Query Prometheus" icon="database" href="/telemetry/prometheus">
+    Write PromQL queries and explore metrics
+  </Card>
+  
+  <Card title="Grafana Dashboards" icon="chart-line" href="/telemetry/grafana">
+    Customize and create new dashboards
+  </Card>
+  
+  <Card title="Available Metrics" icon="list" href="/telemetry/available-metrics">
+    Full catalog of Nokia SROS metrics
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<Accordion title="Grafana shows 'No data'">
+1. Verify Prometheus is running: `curl http://localhost:9090/-/healthy`
+2. Check Prometheus targets: Navigate to http://localhost:9090/targets
+3. Ensure gNMIc is exposing metrics: `curl http://localhost:9273/metrics`
+</Accordion>
+
+<Accordion title="gNMIc not collecting data">
+1. Check gNMIc logs: `sudo docker logs gnmic`
+2. Verify devices are reachable: `sudo docker exec gnmic ping bng1`
+3. Check gNMI port is open on devices (57400)
+</Accordion>
+
+<Accordion title="Prometheus not scraping gNMIc">
+1. Check Prometheus config: `sudo docker exec prometheus cat /etc/prometheus/prometheus.yml`
+2. Verify network connectivity: `sudo docker exec prometheus wget -O- http://gnmic:9273/metrics`
+3. Review Prometheus logs: `sudo docker logs prometheus`
+</Accordion>
+
+<Accordion title="High memory usage">
+Prometheus stores metrics in memory. To reduce usage:
+- Decrease retention time (default: 15 days)
+- Reduce scrape interval in `prometheus.yml`
+- Limit subscription paths in gNMIc config
+</Accordion>

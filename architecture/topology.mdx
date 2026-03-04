@@ -1,0 +1,552 @@
+---
+title: 'Network Topology'
+description: 'Detailed device inventory, physical connections, IP addressing, and VLAN design'
+---
+
+## Device Inventory
+
+The lab consists of 12 network elements deployed via Containerlab, including BNG routers, transport switches, subscriber devices, and telemetry infrastructure.
+
+### BNG Routers (ISP Edge)
+
+<Accordion title="BNG1 - ISP 1 Service Router">
+**Platform Details**
+- **Type**: Nokia SR-7 chassis
+- **Software**: Nokia SR OS (SR-SIM) 25.10.R2
+- **Management IPv4**: 10.77.1.2
+- **System Loopback**: 1.1.1.1/32
+- **Autonomous System**: 65510
+
+**Hardware Configuration**
+- **Chassis**: SR-7 platform
+- **Control Modules**: Slot A, Slot B (redundant CPM)
+- **Line Cards**:
+  - **Slot 1**: IOM5-e
+    - MDA 1: ME6-100gb-qsfp28 (100GE ports)
+    - SFM: m-sfm6-7/12
+  - **Slot 2**: IOM4-e-b
+    - MDA 1: ISA2-bb (Integrated Services Adapter for NAT)
+    - SFM: m-sfm6-7/12
+
+**Active Ports**
+- **1/1/c1/1**: To TX switch (hybrid mode, QinQ)
+- **1/1/c2/1**: To iPerf server (hybrid mode)
+
+**Mapped Ports** (host → container)
+- 56661 → 22 (SSH)
+- 56662 → 57400 (gRPC)
+- 56663 → 830 (NETCONF)
+
+**Configuration File**: `configs/sros/config-bng.txt`
+</Accordion>
+
+<Accordion title="BNG2 - ISP 2 Service Router">
+**Platform Details**
+- **Type**: Nokia SR-7 chassis
+- **Software**: Nokia SR OS (SR-SIM) 25.10.R2
+- **Management IPv4**: 10.77.1.3
+- **System Loopback**: 1.1.1.1/32
+- **Autonomous System**: 65510
+
+**Hardware Configuration**
+- Identical to BNG1
+- **Slot 1**: IOM5-e with ME6-100gb-qsfp28
+- **Slot 2**: IOM4-e-b with ISA2-bb
+
+**Active Ports**
+- **1/1/c1/1**: To TX switch (hybrid mode, QinQ)
+- **1/1/c2/1**: To iPerf server (hybrid mode)
+
+**Mapped Ports** (host → container)
+- 56664 → 22 (SSH)
+- 56665 → 57400 (gRPC)
+- 56666 → 830 (NETCONF)
+
+**Configuration File**: `configs/sros/config-bng-2.txt`
+</Accordion>
+
+### Transport Network
+
+<Accordion title="TX - Transport Aggregation Switch">
+**Platform Details**
+- **Type**: Nokia SR Linux (IXR)
+- **Software**: SR Linux 25.10
+- **Management IPv4**: 10.77.1.16
+- **Role**: Core L2 transport switch
+
+**Active Interfaces**
+- **ethernet-1/1**: BNG1 connection
+- **ethernet-1/2**: BNG2 connection
+- **ethernet-1/3**: Switch connection
+
+**Mapped Ports**
+- 56676 → 22 (SSH)
+
+**Configuration File**: `configs/switch/srl.txt`
+</Accordion>
+
+<Accordion title="Switch - Access Aggregation (7250)">
+**Platform Details**
+- **Type**: Nokia IXR-ec (7250 series)
+- **Software**: Nokia SR OS (SR-SIM) 25.10.R2
+- **Management IPv4**: 10.77.1.4
+- **System Name**: SWITCH-7250
+
+**Hardware Configuration**
+- **Slot A**: cpm-ixr-ec
+  - MDA: m4-1g-tx+20-1g-sfp+6-10g-sfp+
+
+**Active Ports**
+- **1/1/1**: To TX switch (hybrid, QinQ)
+- **1/1/3**: To OLT (hybrid, QinQ)
+
+**Mapped Ports**
+- 56667 → 22 (SSH)
+- 56668 → 57400 (gRPC)
+- 56669 → 830 (NETCONF)
+
+**Configuration File**: `configs/switch/switch.txt`
+</Accordion>
+
+<Accordion title="OLT - Optical Line Terminal">
+**Platform Details**
+- **Type**: Nokia IXR-ec
+- **Software**: Nokia SR OS (SR-SIM) 25.10.R2
+- **Management IPv4**: 10.77.1.5
+- **System Name**: OLT-NOKIA
+
+**Hardware Configuration**
+- **Slot A**: cpm-ixr-ec
+  - MDA: m4-1g-tx+20-1g-sfp+6-10g-sfp+
+
+**Active Ports**
+- **1/1/1**: To Switch (hybrid, QinQ)
+- **1/1/2**: To ONT1 (access mode, dot1q)
+- **1/1/3**: To ONT2 (access mode, dot1q)
+
+**Mapped Ports**
+- 56678 → 22 (SSH)
+- 56671 → 57400 (gRPC)
+- 56672 → 830 (NETCONF)
+
+**Configuration File**: `configs/olt/olt.txt`
+</Accordion>
+
+### Subscriber Devices
+
+<Accordion title="ONT1 - IPoE Customer Premises Equipment">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: ghcr.io/abelperezr/ont-ds:0.2
+- **Management IPv4**: 10.77.1.6
+- **Group**: leaf
+
+**Configuration**
+- **Connection Type**: IPoE (DHCP-based)
+- **VLAN ID**: 150
+- **Physical Interface**: eth1
+- **LAN Interface**: eth2
+- **MAC Address**: 00:D0:F6:01:01:01
+- **User Password**: test
+
+**Mapped Ports**
+- 56673 → 22 (SSH)
+- 8081 → 8080 (Web UI)
+
+**Connects To**: OLT port 1/1/2 → BNG1
+</Accordion>
+
+<Accordion title="ONT2 - PPPoE Customer Premises Equipment">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: ghcr.io/abelperezr/ont-ds:0.2
+- **Management IPv4**: 10.77.1.7
+- **Group**: leaf
+
+**Configuration**
+- **Connection Type**: PPPoE
+- **PPP Username**: test@test.com
+- **PPP Password**: testlab123
+- **VLAN ID**: 150
+- **Physical Interface**: eth1
+- **LAN Interface**: eth2
+- **MAC Address**: 00:D0:F6:01:01:02
+- **User Password**: test
+
+**Mapped Ports**
+- 56674 → 22 (SSH)
+- 8082 → 8080 (Web UI)
+
+**Connects To**: OLT port 1/1/3 → BNG2
+</Accordion>
+
+<Accordion title="PC1 - End User Device">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: ghcr.io/srl-labs/network-multitool
+- **Management IPv4**: 10.77.1.17
+- **Group**: leaf
+
+**Configuration**
+- Connected to ONT1 eth2 (LAN side)
+- IPv6 SLAAC enabled
+- Dual-stack capable
+
+**Mapped Ports**
+- 56677 → 22 (SSH)
+
+**Interface**: eth1 (connected to ONT1:eth2)
+</Accordion>
+
+### Support Infrastructure
+
+<Accordion title="RADIUS - Authentication Server">
+**Platform Details**
+- **Type**: Linux container (FreeRADIUS)
+- **Image**: ghcr.io/srl-labs/network-multitool
+- **Management IPv4**: 10.77.1.10
+- **Group**: server
+
+**Configuration Files**
+- `/etc/raddb/clients.conf` - BNG client definitions
+- `/etc/raddb/radiusd.conf` - Server configuration
+- `/etc/raddb/mods-config/files/authorize` - User database
+
+**Clients Defined**
+- BNG1: 10.77.1.2
+- BNG2: 10.77.1.3
+- Shared Secret: testlab123
+
+**User Database**
+- ONT1 (IPoE): 00:d0:f6:01:01:01
+- ONT2 (PPPoE): test@test.com
+</Accordion>
+
+<Accordion title="gNMIc - Telemetry Collector">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: ghcr.io/openconfig/gnmic:latest
+- **Management IPv4**: 10.77.1.12
+- **Group**: server
+
+**Configuration**
+- File: `configs/gnmic/config.yml`
+- gNMI Username: admin
+- gNMI Password: lab123
+- Targets: BNG1, BNG2, Switch, OLT
+- Output: Prometheus exporter
+</Accordion>
+
+<Accordion title="Prometheus - Metrics Database">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: prom/prometheus
+- **Management IPv4**: 10.77.1.13
+- **Group**: server
+
+**Configuration**
+- File: `configs/prometheus/prometheus.yml`
+- Scrape Interval: Defined per target
+- Port: 9090 (mapped to host)
+
+**Targets**
+- gNMIc exporter endpoint
+</Accordion>
+
+<Accordion title="Grafana - Visualization Platform">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: grafana/grafana:10.3.5
+- **Management IPv4**: 10.77.1.14
+- **Group**: server
+
+**Configuration**
+- Port: 3030 (mapped from 3000)
+- Admin Password: admin
+- Anonymous Access: Enabled
+- Datasource: Prometheus (10.77.1.13:9090)
+- Dashboards: Pre-configured BNG metrics
+
+**Provisioned Content**
+- `configs/grafana/datasource.yml`
+- `configs/grafana/dashboards.yml`
+- Dashboard JSON files in `configs/grafana/dashboards/`
+</Accordion>
+
+<Accordion title="iPerf - Traffic Generator">
+**Platform Details**
+- **Type**: Linux container
+- **Image**: ghcr.io/srl-labs/network-multitool
+- **Management IPv4**: 10.77.1.15
+
+**Network Configuration**
+- **eth1**: 172.19.1.1/30 (connected to BNG1)
+  - Gateway: 172.19.1.2
+- **eth2**: 172.20.1.1/30 (connected to BNG2)
+  - Default route via BNG1
+
+**Mapped Ports**
+- 56675 → 22 (SSH)
+
+**Purpose**: Traffic generation and throughput testing
+</Accordion>
+
+## Physical Connections
+
+All links are point-to-point Ethernet connections established by Containerlab.
+
+### Link Topology
+
+| Link ID | Endpoint A | Endpoint B | Description |
+|---------|-----------|-----------|-------------|
+| 1 | bng1:1/1/c1/1 | tx:ethernet-1/1 | BNG1 to TX transport |
+| 2 | bng2:1/1/c1/1 | tx:ethernet-1/2 | BNG2 to TX transport |
+| 3 | tx:ethernet-1/3 | switch:1/1/1 | TX to Switch aggregation |
+| 4 | switch:1/1/3 | olt:1/1/1 | Switch to OLT |
+| 5 | olt:1/1/2 | ont1:eth1 | OLT to ONT1 subscriber |
+| 6 | olt:1/1/3 | ont2:eth1 | OLT to ONT2 subscriber |
+| 7 | bng1:1/1/c2/1 | iperf:eth1 | BNG1 to iPerf (test) |
+| 8 | bng2:1/1/c2/1 | iperf:eth2 | BNG2 to iPerf (test) |
+| 9 | ont1:eth2 | pc1:eth1 | ONT1 LAN to PC1 |
+
+### Connection Diagram
+
+```
+                    ┌─────────────────┐
+                    │   iPerf Server  │
+                    │  172.19.1.1/30  │
+                    │  172.20.1.1/30  │
+                    └────────┬────────┘
+                             │
+                  ┌──────────┴──────────┐
+                  │                     │
+          ┌───────┴──────┐      ┌──────┴───────┐
+          │     BNG1     │      │     BNG2     │
+          │  10.77.1.2   │      │  10.77.1.3   │
+          │1/1/c1/1      │      │     1/1/c1/1 │
+          └───────┬──────┘      └──────┬───────┘
+                  │                     │
+                  └──────────┬──────────┘
+                             │
+                    ┌────────┴────────┐
+                    │    TX Switch    │
+                    │   10.77.1.16    │
+                    │  ethernet-1/3   │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │     Switch      │
+                    │   10.77.1.4     │
+                    │     1/1/3       │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │       OLT       │
+                    │   10.77.1.5     │
+                    │ 1/1/2    1/1/3  │
+                    └────┬─────────┬──┘
+                         │         │
+                    ┌────┴───┐ ┌──┴────┐
+                    │  ONT1  │ │ ONT2  │
+                    │10.77.1.6│ │10.77.1.7│
+                    └────┬───┘ └───────┘
+                         │
+                    ┌────┴───┐
+                    │  PC1   │
+                    │10.77.1.17│
+                    └────────┘
+```
+
+## IP Addressing Scheme
+
+### Management Network (10.77.1.0/24)
+
+<Note>
+All devices share the same management subnet for OOB access.
+</Note>
+
+| Device | Management IP | Access Method |
+|--------|--------------|---------------|
+| BNG1 | 10.77.1.2 | SSH: localhost:56661 |
+| BNG2 | 10.77.1.3 | SSH: localhost:56664 |
+| Switch | 10.77.1.4 | SSH: localhost:56667 |
+| OLT | 10.77.1.5 | SSH: localhost:56678 |
+| ONT1 | 10.77.1.6 | SSH: localhost:56673 |
+| ONT2 | 10.77.1.7 | SSH: localhost:56674 |
+| RADIUS | 10.77.1.10 | SSH via mgmt network |
+| gNMIc | 10.77.1.12 | API access |
+| Prometheus | 10.77.1.13 | http://localhost:9090 |
+| Grafana | 10.77.1.14 | http://localhost:3030 |
+| iPerf | 10.77.1.15 | SSH: localhost:56675 |
+| TX | 10.77.1.16 | SSH: localhost:56676 |
+| PC1 | 10.77.1.17 | SSH: localhost:56677 |
+
+### BNG1 Subscriber Addressing
+
+**IPv4 Subscriber Pool (NAT Inside)**
+- **Network**: 100.80.0.0/29
+- **Gateway**: 100.80.0.1
+- **DHCP Range**: 100.80.0.2 - 100.80.0.7
+- **DHCP Server**: 9.9.9.9 (loopback)
+- **DNS**: 8.8.8.8, 8.8.4.4
+
+**IPv6 Subscriber Pools**
+- **WAN Host**: 2001:db8:100::/56
+- **Prefix Delegation**: 2001:db8:200::/48
+- **DHCPv6 Server**: fd07:47::aaaa
+- **DNS**: 2001:4860:4860::8888, 2001:4860:4860::8844
+
+**NAT Outside**
+- **Public IP Pool**: 99.99.99.99/32
+- **NAT Type**: Deterministic NAT44 with port blocks
+- **Port Reservation**: 64 ports per subscriber
+- **Subscriber Limit**: 8 per address
+
+**iPerf Connection**
+- **BNG1 Interface**: 172.19.1.2/30
+- **iPerf Interface**: 172.19.1.1/30
+
+### BNG2 Subscriber Addressing
+
+**IPv4 Subscriber Pool (NAT Inside)**
+- **Network**: 100.90.0.0/29
+- **Gateway**: 100.90.0.1
+- **DHCP Range**: 100.90.0.2 - 100.90.0.7
+- **DHCP Server**: 9.9.9.9 (loopback)
+- **DNS**: 8.8.8.8, 8.8.4.4
+
+**IPv6 Subscriber Pools**
+- Same as BNG1 (2001:db8:100::/56 and 2001:db8:200::/48)
+
+**NAT Outside**
+- **Public IP Pool**: 100.100.100.100/32
+- **NAT Type**: Deterministic NAT44 with port blocks
+- **Port Reservation**: 64 ports per subscriber
+- **Subscriber Limit**: 8 per address
+
+**iPerf Connection**
+- **BNG2 Interface**: 172.20.1.2/30
+- **iPerf Interface**: 172.20.1.1/30
+
+## VLAN Design
+
+### Service VLANs
+
+<Accordion title="VLAN 50 - BNG1 Subscriber Traffic">
+**Purpose**: Isolates all BNG1 (ISP 1) subscriber traffic
+
+**VPLS Service ID**: 50
+
+**Active on Devices**:
+- **Switch**: VPLS "to-tx-50"
+  - SAP: 1/1/1:50.* (to TX)
+  - SAP: 1/1/3:50.* (to OLT)
+- **OLT**: VPLS "bng1-agg"
+  - SAP: 1/1/1:50.150 (to Switch, double-tagged)
+  - SAP: 1/1/2:150 (to ONT1, single-tagged)
+
+**Encapsulation**:
+- Outer VLAN: 50 (service identification)
+- Inner VLAN: 150 (subscriber VLAN)
+- Encapsulation type: QinQ (802.1ad)
+</Accordion>
+
+<Accordion title="VLAN 60 - BNG2 Subscriber Traffic">
+**Purpose**: Isolates all BNG2 (ISP 2) subscriber traffic
+
+**VPLS Service ID**: 60
+
+**Active on Devices**:
+- **Switch**: VPLS "to-tx-60"
+  - SAP: 1/1/1:60.* (to TX)
+  - SAP: 1/1/3:60.* (to OLT)
+- **OLT**: VPLS "bng2-agg"
+  - SAP: 1/1/1:60.150 (to Switch, double-tagged)
+  - SAP: 1/1/3:150 (to ONT2, single-tagged)
+
+**Encapsulation**:
+- Outer VLAN: 60 (service identification)
+- Inner VLAN: 150 (subscriber VLAN)
+- Encapsulation type: QinQ (802.1ad)
+</Accordion>
+
+<Accordion title="VLAN 150 - Subscriber Access VLAN">
+**Purpose**: Subscriber-facing VLAN on ONT devices
+
+**Used By**:
+- ONT1: Tagged VLAN 150 on eth1
+- ONT2: Tagged VLAN 150 on eth1
+
+**Mapping**:
+- Combined with service VLAN (50 or 60) via QinQ
+- Single tag visible to ONT devices
+- Double tag (50.150 or 60.150) in core network
+</Accordion>
+
+### QinQ Encapsulation
+
+<Info>
+The lab uses **QinQ (802.1ad)** for service multiplexing, allowing multiple ISPs to use the same underlying infrastructure with VLAN-based isolation.
+</Info>
+
+**VLAN Stack Example (ONT1 → BNG1)**:
+1. **ONT1** sends traffic with VLAN 150
+2. **OLT** adds outer VLAN 50 → becomes 50.150
+3. **Switch** forwards 50.150 transparently
+4. **TX** forwards 50.150 to BNG1
+5. **BNG1** receives capture-SAP matching 1/1/c1/1:*.* pattern
+
+## Port Mapping Summary
+
+### SSH Access Ports
+
+| Device | Host Port | Container Port | Access Command |
+|--------|-----------|----------------|----------------|
+| BNG1 | 56661 | 22 | `ssh admin@localhost -p 56661` |
+| BNG2 | 56664 | 22 | `ssh admin@localhost -p 56664` |
+| Switch | 56667 | 22 | `ssh admin@localhost -p 56667` |
+| OLT | 56678 | 22 | `ssh admin@localhost -p 56678` |
+| ONT1 | 56673 | 22 | `ssh user@localhost -p 56673` |
+| ONT2 | 56674 | 22 | `ssh user@localhost -p 56674` |
+| iPerf | 56675 | 22 | `ssh root@localhost -p 56675` |
+| TX | 56676 | 22 | `ssh admin@localhost -p 56676` |
+| PC1 | 56677 | 22 | `ssh root@localhost -p 56677` |
+
+### Management API Ports
+
+| Device | Host Port | Container Port | Protocol |
+|--------|-----------|----------------|----------|
+| BNG1 | 56662 | 57400 | gRPC |
+| BNG1 | 56663 | 830 | NETCONF |
+| BNG2 | 56665 | 57400 | gRPC |
+| BNG2 | 56666 | 830 | NETCONF |
+| Switch | 56668 | 57400 | gRPC |
+| Switch | 56669 | 830 | NETCONF |
+| OLT | 56671 | 57400 | gRPC |
+| OLT | 56672 | 830 | NETCONF |
+
+### Web UI Ports
+
+| Service | Host Port | Container Port | Access URL |
+|---------|-----------|----------------|------------|
+| Grafana | 3030 | 3000 | http://localhost:3030 |
+| Prometheus | 9090 | 9090 | http://localhost:9090 |
+| ONT1 | 8081 | 8080 | http://localhost:8081 |
+| ONT2 | 8082 | 8080 | http://localhost:8082 |
+
+## Device Roles Summary
+
+| Device Type | Count | Primary Function |
+|-------------|-------|------------------|
+| BNG (SR-7) | 2 | Subscriber session termination, DHCP, NAT |
+| Transport Switch | 1 | L2 aggregation between BNGs |
+| Access Switch | 1 | Aggregation between transport and OLT |
+| OLT | 1 | Optical/fiber access termination |
+| ONT | 2 | Customer premises equipment (CPE) |
+| RADIUS | 1 | AAA services |
+| Telemetry | 3 | gNMIc collector, Prometheus, Grafana |
+| Test Equipment | 2 | iPerf server, PC1 client |
+
+<Info>
+All network devices support **gNMI telemetry streaming** for real-time monitoring and **NETCONF/RESTCONF** for configuration management.
+</Info>

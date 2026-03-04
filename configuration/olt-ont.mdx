@@ -1,0 +1,437 @@
+---
+title: 'OLT and ONT Configuration'
+description: 'Optical Line Terminal and Optical Network Terminal configuration for subscriber access'
+---
+
+# OLT and ONT Configuration
+
+The Nokia BNG Lab uses a Nokia 7250 IXR-EC router as the Optical Line Terminal (OLT) to aggregate subscriber traffic from Optical Network Terminals (ONTs). This page covers the configuration of both the OLT and the ONT devices.
+
+## OLT Configuration
+
+### Hardware Overview
+
+**Device Type:** Nokia 7250 IXR-EC
+
+**Management IP:** 10.77.1.5
+
+**Hardware Components:**
+- CPM-IXR-EC control module
+- M4-1G-TX+20-1G-SFP+6-10G-SFP+ MDA
+
+**Access Ports:**
+- SSH: Port 56678
+- gRPC: Port 56671
+- NETCONF: Port 56672
+
+### System Configuration
+
+```nokia-sros
+/configure system name "OLT-NOKIA"
+/configure system time zone standard name est
+```
+
+### Management Interfaces
+
+```nokia-sros
+# gRPC Configuration
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+
+# NETCONF Configuration
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# SNMP Configuration
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+```
+
+## OLT Port Configuration
+
+The OLT has three critical port connections:
+
+### Uplink to Switch
+
+```nokia-sros
+/configure port 1/1/1 admin-state enable
+/configure port 1/1/1 ethernet mode hybrid
+/configure port 1/1/1 ethernet encap-type qinq
+```
+
+<Note>
+The uplink port uses QinQ (802.1ad) encapsulation to support VLAN stacking, allowing multiple service VLANs per subscriber.
+</Note>
+
+### ONT1 Connection (IPoE)
+
+```nokia-sros
+/configure port 1/1/2 admin-state enable
+/configure port 1/1/2 ethernet mode access
+/configure port 1/1/2 ethernet encap-type dot1q
+```
+
+### ONT2 Connection (PPPoE)
+
+```nokia-sros
+/configure port 1/1/3 admin-state enable
+/configure port 1/1/3 ethernet mode access
+/configure port 1/1/3 ethernet encap-type dot1q
+```
+
+<Note>
+ONT-facing ports use access mode with dot1q (single VLAN tag) encapsulation. The OLT adds the outer VLAN tag for QinQ toward the BNG.
+</Note>
+
+## VPLS Services
+
+The OLT uses Virtual Private LAN Service (VPLS) to aggregate subscriber traffic for each BNG:
+
+### VPLS for BNG1 Subscribers
+
+```nokia-sros
+/configure service vpls "bng1-agg" admin-state enable
+/configure service vpls "bng1-agg" service-id 50
+/configure service vpls "bng1-agg" customer "1"
+/configure service vpls "bng1-agg" stp admin-state disable
+
+# Uplink SAP (to Switch, toward BNG1)
+/configure service vpls "bng1-agg" sap 1/1/1:50.150 admin-state enable
+
+# Downlink SAP (to ONT1)
+/configure service vpls "bng1-agg" sap 1/1/2:150 admin-state enable
+```
+
+<Accordion title="VLAN Tag Explanation">
+**Uplink SAP (1/1/1:50.150):**
+- Outer VLAN (S-VLAN): 50 - Identifies BNG1 service
+- Inner VLAN (C-VLAN): 150 - Subscriber VLAN
+
+**Downlink SAP (1/1/2:150):**
+- Single VLAN tag: 150 - Subscriber VLAN
+
+The OLT performs VLAN translation, adding/removing the outer tag (50) as traffic flows between the ONT and the BNG.
+</Accordion>
+
+### VPLS for BNG2 Subscribers
+
+```nokia-sros
+/configure service vpls "bng2-agg" admin-state enable
+/configure service vpls "bng2-agg" service-id 60
+/configure service vpls "bng2-agg" customer "1"
+/configure service vpls "bng2-agg" stp admin-state disable
+
+# Uplink SAP (to Switch, toward BNG2)
+/configure service vpls "bng2-agg" sap 1/1/1:60.150 admin-state enable
+
+# Downlink SAP (to ONT2)
+/configure service vpls "bng2-agg" sap 1/1/3:150 admin-state enable
+```
+
+<Warning>
+Spanning Tree Protocol (STP) is disabled on these VPLS instances. Ensure there are no Layer 2 loops in your network topology.
+</Warning>
+
+## Network Topology
+
+```
+┌─────────┐    ┌─────────┐
+│  BNG1   │    │  BNG2   │
+└────┬────┘    └────┬────┘
+     │              │
+     └──────┬───────┘
+            │
+      ┌─────┴─────┐
+      │  Switch   │
+      └─────┬─────┘
+            │ Port 1/1/1 (QinQ)
+      ┌─────┴─────┐
+      │    OLT    │
+      └─┬───────┬─┘
+        │       │
+   Port │       │ Port
+   1/1/2│       │ 1/1/3
+    ┌───┴──┐ ┌──┴───┐
+    │ ONT1 │ │ ONT2 │
+    │(IPoE)│ │(PPPoE│
+    └──────┘ └──────┘
+```
+
+## ONT Configuration
+
+The ONT devices are Linux containers that simulate optical network terminals. They are configured via environment variables in the lab.yml file.
+
+### ONT1 - IPoE Configuration
+
+<CodeGroup>
+```yaml lab.yml
+ont1:
+  kind: linux
+  mgmt-ipv4: 10.77.1.6
+  image: ghcr.io/abelperezr/ont-ds:0.2
+  env:
+    CONNECTION_TYPE: ipoe
+    VLAN_ID: "150"
+    IFPHY: "eth1"
+    IFLAN: "eth2"
+    MAC_ADDRESS: "00:D0:F6:01:01:01"
+    USER_PASSWORD: "test"
+  ports:
+    - 56673:22
+    - 8081:8080
+```
+
+```bash ONT1 Network Setup
+# VLAN interface creation (done automatically)
+ip link add link eth1 name eth1.150 type vlan id 150
+ip link set eth1.150 up
+
+# DHCP client for IPoE
+dhclient -v eth1.150
+```
+</CodeGroup>
+
+**ONT1 Details:**
+- **Connection Type:** IPoE (DHCP-based)
+- **VLAN ID:** 150
+- **MAC Address:** 00:D0:F6:01:01:01
+- **Physical Interface:** eth1 (to OLT port 1/1/2)
+- **LAN Interface:** eth2 (to PC1)
+- **SSH Access:** Port 56673
+- **Web Dashboard:** Port 8081
+- **Connected to:** BNG1 (via OLT VPLS service-id 50)
+
+### ONT2 - PPPoE Configuration
+
+<CodeGroup>
+```yaml lab.yml
+ont2:
+  kind: linux
+  mgmt-ipv4: 10.77.1.7
+  image: ghcr.io/abelperezr/ont-ds:0.2
+  env:
+    CONNECTION_TYPE: pppoe
+    PPP_USER: "test@test.com"
+    PPP_PASS: "testlab123"
+    VLAN_ID: "150"
+    IFPHY: "eth1"
+    IFLAN: "eth2"
+    MAC_ADDRESS: "00:D0:F6:01:01:02"
+    USER_PASSWORD: "test"
+  ports:
+    - 56674:22
+    - 8082:8080
+```
+
+```bash ONT2 Network Setup
+# VLAN interface creation
+ip link add link eth1 name eth1.150 type vlan id 150
+ip link set eth1.150 up
+
+# PPPoE client configuration
+pppoe-server -I eth1.150 -T 60 -C test -S test
+pppd plugin rp-pppoe.so eth1.150 \
+  user test@test.com \
+  password testlab123 \
+  noauth defaultroute usepeerdns persist
+```
+</CodeGroup>
+
+**ONT2 Details:**
+- **Connection Type:** PPPoE (username/password authentication)
+- **PPPoE Credentials:**
+  - Username: test@test.com
+  - Password: testlab123
+- **VLAN ID:** 150
+- **MAC Address:** 00:D0:F6:01:01:02
+- **Physical Interface:** eth1 (to OLT port 1/1/3)
+- **LAN Interface:** eth2
+- **SSH Access:** Port 56674
+- **Web Dashboard:** Port 8082
+- **Connected to:** BNG2 (via OLT VPLS service-id 60)
+
+## VLAN Configuration Summary
+
+<Tabs>
+  <Tab title="VLAN 150">
+    **Subscriber VLAN (C-VLAN)**
+    
+    Used by all ONT devices for subscriber traffic.
+    
+    - ONT1 tags traffic with VLAN 150 → OLT port 1/1/2
+    - ONT2 tags traffic with VLAN 150 → OLT port 1/1/3
+  </Tab>
+  
+  <Tab title="VLAN 50">
+    **BNG1 Service VLAN (S-VLAN)**
+    
+    Outer VLAN tag added by OLT for BNG1-bound traffic.
+    
+    - QinQ format: 50.150
+    - Aggregates ONT1 traffic
+    - Delivered to BNG1 via Switch
+  </Tab>
+  
+  <Tab title="VLAN 60">
+    **BNG2 Service VLAN (S-VLAN)**
+    
+    Outer VLAN tag added by OLT for BNG2-bound traffic.
+    
+    - QinQ format: 60.150
+    - Aggregates ONT2 traffic
+    - Delivered to BNG2 via Switch
+  </Tab>
+</Tabs>
+
+## Connection Type Comparison
+
+<Tabs>
+  <Tab title="IPoE">
+    **IP over Ethernet (IPoE)**
+    
+    **Pros:**
+    - Simpler configuration
+    - No PPP overhead
+    - Faster session establishment
+    - Native IP addressing
+    
+    **Authentication:**
+    - Based on MAC address
+    - DHCP Option 82 (Circuit ID/Remote ID)
+    - RADIUS attributes
+    
+    **Use Case:**
+    - ONT1 demonstrates IPoE with DHCP
+    - Suitable for residential subscribers
+  </Tab>
+  
+  <Tab title="PPPoE">
+    **PPP over Ethernet (PPPoE)**
+    
+    **Pros:**
+    - User credentials authentication
+    - Per-session accounting
+    - Better control and troubleshooting
+    - Standards-based (RFC 2516)
+    
+    **Authentication:**
+    - Username and password
+    - PAP or CHAP
+    - RADIUS Access-Request
+    
+    **Use Case:**
+    - ONT2 demonstrates PPPoE
+    - Common in DSL/fiber deployments
+  </Tab>
+</Tabs>
+
+## Interface Mapping
+
+| Device | Physical Port | Encapsulation | VLAN(s) | Connected To |
+|--------|---------------|---------------|---------|-------------|
+| OLT    | 1/1/1         | QinQ          | 50.150, 60.150 | Switch |
+| OLT    | 1/1/2         | dot1q         | 150     | ONT1 |
+| OLT    | 1/1/3         | dot1q         | 150     | ONT2 |
+| ONT1   | eth1          | dot1q         | 150     | OLT 1/1/2 |
+| ONT2   | eth1          | dot1q         | 150     | OLT 1/1/3 |
+
+## Traffic Flow
+
+### IPoE Session (ONT1 → BNG1)
+
+1. **ONT1** sends DHCP Discover with VLAN 150
+2. **OLT** receives on port 1/1/2, adds outer VLAN 50 → 50.150
+3. **Switch** forwards QinQ frame to BNG1
+4. **BNG1** capture SAP triggers on DHCP packet
+5. **BNG1** performs RADIUS authentication (MAC-based)
+6. **BNG1** responds with DHCP Offer
+7. **ONT1** completes DHCP handshake and receives IP address
+
+### PPPoE Session (ONT2 → BNG2)
+
+1. **ONT2** sends PPPoE PADI (Discovery) with VLAN 150
+2. **OLT** receives on port 1/1/3, adds outer VLAN 60 → 60.150
+3. **Switch** forwards QinQ frame to BNG2
+4. **BNG2** capture SAP triggers on PPPoE packet
+5. **BNG2** responds with PPPoE PADO (Offer)
+6. **ONT2** sends PADR (Request)
+7. **BNG2** performs RADIUS authentication (username/password)
+8. **BNG2** responds with PADS (Session confirmation)
+9. **PPP** negotiation (LCP, IPCP, IPv6CP)
+10. **ONT2** receives IP address and establishes session
+
+<Warning>
+Both connection types require successful RADIUS authentication. Ensure the RADIUS server is running and accessible at 10.77.1.10.
+</Warning>
+
+## Verification Commands
+
+### OLT Status
+
+```bash
+# SSH into OLT
+ssh admin@10.77.1.5 -p 56678
+
+# Check VPLS services
+show service service-using
+show service id 50 base
+show service id 60 base
+
+# Check SAP status
+show service sap 1/1/2:150
+show service sap 1/1/3:150
+
+# Check port status
+show port 1/1/1
+show port 1/1/2 detail
+show port 1/1/3 detail
+```
+
+### ONT Status
+
+<CodeGroup>
+```bash ONT1 (IPoE)
+# SSH into ONT1
+ssh root@10.77.1.6 -p 56673
+
+# Check VLAN interface
+ip link show eth1.150
+
+# Check DHCP lease
+cat /var/lib/dhcp/dhclient.leases
+
+# Test connectivity
+ping -c 4 8.8.8.8
+```
+
+```bash ONT2 (PPPoE)
+# SSH into ONT2
+ssh root@10.77.1.7 -p 56674
+
+# Check PPPoE session
+cat /var/run/ppp0.pid
+ifconfig ppp0
+
+# Check PPP logs
+tail -f /var/log/pppd.log
+
+# Test connectivity
+ping -I ppp0 -c 4 8.8.8.8
+```
+</CodeGroup>
+
+## Configuration Files
+
+The complete configuration files are located at:
+- **OLT**: `configs/olt/olt.txt`
+- **Lab Topology**: `lab.yml` (ONT definitions in nodes section)
+
+## Related Topics
+
+- [BNG Router Configuration](/configuration/bng-devices)
+- [RADIUS Server Configuration](/configuration/radius)
+- [Network Services Configuration](/configuration/network-services)

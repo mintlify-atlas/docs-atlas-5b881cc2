@@ -1,0 +1,388 @@
+---
+title: OLT Configuration Reference
+description: Nokia OLT device configuration for connecting ONTs and aggregating subscriber traffic
+---
+
+# OLT Configuration Reference
+
+Configuration reference for the OLT (Optical Line Terminal) in the Nokia BNG Lab.
+
+## Overview
+
+**Device**: Nokia OLT
+**Name**: OLT-NOKIA
+**Role**: Aggregates traffic from ONTs and forwards to BNGs via the switch
+**ONTs**: ONT1 (Port 1/1/2), ONT2 (Port 1/1/3)
+
+## Network Connectivity
+
+```
+       ┌─────────────┐
+       │  OLT-NOKIA  │
+       └──────┬──────┘
+              │ 1/1/1 (QinQ)
+              │
+       ┌──────▼──────┐
+       │   Switch    │
+       └─────────────┘
+              │
+       ┌──────┴───────┐
+       │              │
+    1/1/2         1/1/3
+   (dot1q)      (dot1q)
+       │              │
+   ┌───▼───┐     ┌───▼───┐
+   │ ONT1  │     │ ONT2  │
+   └───────┘     └───────┘
+```
+
+<Accordion title="System Configuration">
+
+## Basic System Setup
+
+```sros
+# System Name
+/configure system name "OLT-NOKIA"
+
+# Time Zone
+/configure system time zone standard name est
+
+# Management Interfaces
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# SNMP
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+```
+
+### User Configuration
+
+```sros
+/configure system security user-params local-user user "admin" restricted-to-home false
+/configure system security user-params local-user user "admin" access console true
+/configure system security user-params local-user user "admin" access ftp true
+/configure system security user-params local-user user "admin" access netconf true
+/configure system security user-params local-user user "admin" access grpc true
+/configure system security user-params local-user user "admin" password "lab123"
+/configure system security user-params local-user user "admin" console member ["administrative"]
+```
+
+</Accordion>
+
+<Accordion title="Port Configuration">
+
+## Port to Switch (Uplink)
+
+```sros
+/configure port 1/1/1 admin-state enable
+/configure port 1/1/1 ethernet mode hybrid
+/configure port 1/1/1 ethernet encap-type qinq
+```
+
+**Port**: 1/1/1
+**Purpose**: Uplink to aggregation switch
+**Mode**: Hybrid (multiple service types)
+**Encapsulation**: QinQ (double VLAN tagging)
+
+## Port to ONT1
+
+```sros
+/configure port 1/1/2 admin-state enable
+/configure port 1/1/2 ethernet mode access
+/configure port 1/1/2 ethernet encap-type dot1q
+```
+
+**Port**: 1/1/2
+**Purpose**: Connection to ONT1
+**Mode**: Access (single subscriber)
+**Encapsulation**: dot1q (single VLAN tag)
+**VLAN**: 150
+
+## Port to ONT2
+
+```sros
+/configure port 1/1/3 admin-state enable
+/configure port 1/1/3 ethernet mode access
+/configure port 1/1/3 ethernet encap-type dot1q
+```
+
+**Port**: 1/1/3
+**Purpose**: Connection to ONT2
+**Mode**: Access
+**Encapsulation**: dot1q
+**VLAN**: 150
+
+</Accordion>
+
+<Accordion title="VPLS Configuration">
+
+## VPLS to BNG1 (Service 50)
+
+```sros
+/configure service vpls "bng1-agg" admin-state enable
+/configure service vpls "bng1-agg" service-id 50
+/configure service vpls "bng1-agg" customer "1"
+/configure service vpls "bng1-agg" stp admin-state disable
+/configure service vpls "bng1-agg" sap 1/1/1:50.150 admin-state enable
+/configure service vpls "bng1-agg" sap 1/1/2:150 admin-state enable
+```
+
+**Service Name**: bng1-agg
+**Service ID**: 50
+**Purpose**: Aggregate traffic from ONT1 to BNG1
+
+**SAPs**:
+- `1/1/1:50.150` - Uplink to switch (Outer VLAN: 50, Inner VLAN: 150)
+- `1/1/2:150` - Downlink to ONT1 (VLAN: 150)
+
+**How it works**:
+1. ONT1 sends frames tagged with VLAN 150
+2. OLT adds outer VLAN 50 on uplink
+3. Switch forwards to BNG1
+4. BNG1 receives QinQ frame (50.150)
+
+## VPLS to BNG2 (Service 60)
+
+```sros
+/configure service vpls "bng2-agg" admin-state enable
+/configure service vpls "bng2-agg" service-id 60
+/configure service vpls "bng2-agg" customer "1"
+/configure service vpls "bng2-agg" stp admin-state disable
+/configure service vpls "bng2-agg" sap 1/1/1:60.150 admin-state enable
+/configure service vpls "bng2-agg" sap 1/1/3:150 admin-state enable
+```
+
+**Service Name**: bng2-agg
+**Service ID**: 60
+**Purpose**: Aggregate traffic from ONT2 to BNG2
+
+**SAPs**:
+- `1/1/1:60.150` - Uplink to switch (Outer VLAN: 60, Inner VLAN: 150)
+- `1/1/3:150` - Downlink to ONT2 (VLAN: 150)
+
+**How it works**:
+1. ONT2 sends frames tagged with VLAN 150
+2. OLT adds outer VLAN 60 on uplink
+3. Switch forwards to BNG2
+4. BNG2 receives QinQ frame (60.150)
+
+</Accordion>
+
+## VLAN Tagging Details
+
+### Traffic from ONT1 to BNG1
+
+```
+ONT1                 OLT                  Switch              BNG1
+ │                    │                     │                   │
+ │ VLAN 150           │                     │                   │
+ │──────────────────▶ │                     │                   │
+ │                    │ QinQ: 50.150        │                   │
+ │                    │────────────────────▶│                   │
+ │                    │                     │ QinQ: 50.150      │
+ │                    │                     │──────────────────▶│
+ │                    │                     │                   │
+```
+
+**Frame at ONT1**: `[Ethernet][VLAN:150][Payload]`
+**Frame at OLT Uplink**: `[Ethernet][Outer:50][Inner:150][Payload]`
+**Frame at BNG1**: `[Ethernet][Outer:50][Inner:150][Payload]`
+
+### Traffic from ONT2 to BNG2
+
+```
+ONT2                 OLT                  Switch              BNG2
+ │                    │                     │                   │
+ │ VLAN 150           │                     │                   │
+ │──────────────────▶ │                     │                   │
+ │                    │ QinQ: 60.150        │                   │
+ │                    │────────────────────▶│                   │
+ │                    │                     │ QinQ: 60.150      │
+ │                    │                     │──────────────────▶│
+ │                    │                     │                   │
+```
+
+**Frame at ONT2**: `[Ethernet][VLAN:150][Payload]`
+**Frame at OLT Uplink**: `[Ethernet][Outer:60][Inner:150][Payload]`
+**Frame at BNG2**: `[Ethernet][Outer:60][Inner:150][Payload]`
+
+## Service Assignment
+
+| ONT | Port | Access VLAN | VPLS Service | Outer VLAN | BNG |
+|-----|------|-------------|--------------|------------|-----|
+| ONT1 | 1/1/2 | 150 | bng1-agg (50) | 50 | BNG1 |
+| ONT2 | 1/1/3 | 150 | bng2-agg (60) | 60 | BNG2 |
+
+## Complete Configuration
+
+<Accordion title="Full OLT Configuration">
+
+```sros
+##################1.SYSTEM NAME ####################################################################################
+
+/configure system name "OLT-NOKIA"
+
+##################2.TIME ###########################################################################################
+
+/configure system time zone standard name est
+
+##################3.GRPC ###########################################################################################
+
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+
+##################4.NETCONF########################################################################################
+
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+##################5.SNMP############################################################################################
+
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+
+##################8.SYSTEM USERS ########################################################################
+
+/configure system security user-params local-user user "admin" password "lab123"
+/configure system security user-params local-user user "admin" access console true
+/configure system security user-params local-user user "admin" access ftp true
+/configure system security user-params local-user user "admin" access netconf true
+/configure system security user-params local-user user "admin" access grpc true
+/configure system security user-params local-user user "admin" console member ["administrative"]
+
+##################10.PORTS#################################################################################
+##################10.1-PORT TO SWITCH#################################################################################
+
+/configure port 1/1/1 admin-state enable
+/configure port 1/1/1 ethernet mode hybrid
+/configure port 1/1/1 ethernet encap-type qinq
+
+##################10.2-PORT TO ONT1#################################################################################
+
+/configure port 1/1/2 admin-state enable
+/configure port 1/1/2 ethernet mode access
+/configure port 1/1/2 ethernet encap-type dot1q
+
+##################10.3.PORT TO ONT2#################################################################################
+
+/configure port 1/1/3 admin-state enable
+/configure port 1/1/3 ethernet mode access
+/configure port 1/1/3 ethernet encap-type dot1q
+
+##################11.VPLS#################################################################################
+##################11.1.VPLS BNG1#################################################################################
+
+/configure service vpls "bng1-agg" admin-state enable
+/configure service vpls "bng1-agg" service-id 50
+/configure service vpls "bng1-agg" customer "1"
+/configure service vpls "bng1-agg" stp admin-state disable
+/configure service vpls "bng1-agg" sap 1/1/1:50.150 admin-state enable
+/configure service vpls "bng1-agg" sap 1/1/2:150 admin-state enable
+
+##################11.2.VPLS BNG2#################################################################################
+
+/configure service vpls "bng2-agg" admin-state enable
+/configure service vpls "bng2-agg" service-id 60
+/configure service vpls "bng2-agg" customer "1"
+/configure service vpls "bng2-agg" stp admin-state disable
+/configure service vpls "bng2-agg" sap 1/1/1:60.150 admin-state enable
+/configure service vpls "bng2-agg" sap 1/1/3:150 admin-state enable
+```
+
+</Accordion>
+
+## Verification Commands
+
+```bash
+# Show VPLS services
+show service id 50 base
+show service id 60 base
+
+# Show SAP status
+show service sap 1/1/1:50.150
+show service sap 1/1/2:150
+show service sap 1/1/1:60.150
+show service sap 1/1/3:150
+
+# Show MAC learning
+show service id 50 fdb detail
+show service id 60 fdb detail
+
+# Show port statistics
+show port 1/1/1 statistics
+show port 1/1/2 statistics
+show port 1/1/3 statistics
+
+# Show detailed SAP info
+show service service-using sap 1/1/2:150
+show service service-using sap 1/1/3:150
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="ONT not learning MAC addresses">
+
+**Check**:
+1. Port operational state: `show port 1/1/2`
+2. SAP operational state: `show service sap 1/1/2:150`
+3. MAC table: `show service id 50 fdb detail`
+
+**Common causes**:
+- Port admin down
+- VLAN mismatch
+- Encapsulation type mismatch
+
+</Accordion>
+
+<Accordion title="No connectivity to BNG">
+
+**Verify**:
+1. Uplink port: `show port 1/1/1`
+2. VPLS service: `show service id 50 base`
+3. QinQ encapsulation: `show port 1/1/1 ethernet encap-type`
+
+**Check VLAN tags**:
+```bash
+tools dump port 1/1/1 encapsulation
+```
+
+</Accordion>
+
+<Accordion title="Wrong BNG receiving traffic">
+
+**Issue**: ONT1 traffic going to BNG2 or vice versa
+
+**Verify service assignment**:
+```bash
+show service sap 1/1/2:150  # Should be in service 50 (BNG1)
+show service sap 1/1/3:150  # Should be in service 60 (BNG2)
+```
+
+**Check uplink SAPs**:
+```bash
+show service id 50 sap    # Should have 1/1/1:50.150
+show service id 60 sap    # Should have 1/1/1:60.150
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+- [Switch Configuration](/reference/switch-config)
+- [BNG1 Configuration](/reference/bng1-config)
+- [BNG2 Configuration](/reference/bng2-config)
+- [Network Topology](/guides/architecture)

@@ -1,0 +1,600 @@
+---
+title: Dashboard Guide
+description: Detailed guide to using pre-configured SROS and SR Linux telemetry dashboards
+---
+
+# Dashboard Guide
+
+This guide provides detailed information about the pre-configured Grafana dashboards for monitoring Nokia SROS and SR Linux devices.
+
+## Dashboard Access
+
+Access Grafana dashboards at:
+
+```
+http://localhost:3030
+```
+
+**Navigation**:
+1. Click **Dashboards** icon (four squares) in left sidebar
+2. Select **Browse**
+3. Choose a dashboard:
+   - **SROS Dashboard** - BNG monitoring
+   - **SR Linux Telemetry** - Switch/OLT monitoring
+
+<Note>
+Anonymous access is enabled - no login required for viewing. Use **admin/admin** for editing privileges.
+</Note>
+
+## SROS Dashboard
+
+Comprehensive monitoring for Nokia SROS BNG routers (BNG1, BNG2).
+
+**File**: `configs/grafana/dashboards/SROS-Dashboard.json`  
+**Purpose**: Monitor BNG system health, interfaces, subscriber sessions, and routing protocols
+
+### Dashboard Layout
+
+The SROS dashboard is organized into collapsible rows:
+
+<Tabs>
+  <Tab title="System Status">
+**Overview of device health and resources**
+
+**Panels**:
+1. **CPU Utilization** (Bar Gauge)
+   - Shows CPU percentage per device
+   - Color-coded: Green (under 70%), Yellow (70-85%), Red (over 85%)
+   - Query: `system_cpu`
+
+2. **Memory Usage** (Gauge)
+   - Displays memory utilization percentage
+   - Calculated: `(in_use / available) * 100`
+   - Threshold warnings at 80% and 90%
+
+3. **System Uptime** (Stat)
+   - Time since last restart
+   - Useful for tracking reboots
+
+4. **Temperature Sensors** (Graph)
+   - Card and module temperatures
+   - Query: `card_hardware_data_temperature`
+   - Alert threshold at 70°C
+
+5. **Fan Speeds** (Graph)
+   - Chassis fan RPM monitoring
+   - Query: `chassis_fan_speed`
+   - Detects fan failures (speed = 0)
+
+**Use Cases**:
+- Quick health check before maintenance
+- Identify overheating or resource exhaustion
+- Monitor system stability over time
+</Tab>
+  
+  <Tab title="Port Statistics">
+**Interface traffic, state, and error monitoring**
+
+**Panels**:
+1. **Port Operational State** (Status Panel)
+   - Visual indicator: Green (up), Red (down)
+   - Query: `port_oper_state`
+   - Shows all monitored ports
+
+2. **Interface Traffic Rate** (Time Series)
+   - Ingress and egress traffic in bps
+   - Query:
+     ```promql
+     rate(port_statistics_in_octets[5m]) * 8
+     -rate(port_statistics_out_octets[5m]) * 8
+     ```
+   - Ingress above X-axis, egress below (negative)
+
+3. **Packet Rate** (Graph)
+   - Packets per second (pps)
+   - Useful for identifying small-packet attacks
+
+4. **Port Utilization** (Bar Gauge)
+   - Percentage of interface capacity used
+   - Assumes 10G ports (configurable)
+   - Formula: `(rate * 8 / 10000000000) * 100`
+
+5. **Error Counters** (Table)
+   - Displays ports with errors
+   - Columns: Port, CRC Errors, FCS Errors, Discards
+   - Highlights non-zero values
+
+6. **Top 5 Interfaces by Traffic** (Bar Chart)
+   - Sorted by total bytes
+   - Query: `topk(5, rate(port_statistics_in_octets[5m]))`
+
+**Use Cases**:
+- Troubleshoot connectivity issues
+- Identify bandwidth bottlenecks
+- Detect interface errors and packet loss
+- Capacity planning
+</Tab>
+  
+  <Tab title="BNG Sessions">
+**Subscriber session monitoring and statistics**
+
+**Panels**:
+1. **Total Active Sessions** (Stat Panel)
+   - Large display of current session count
+   - Query: `sum(subscriber_mgmt_local_user_db_ipoe_session_stats_current)`
+   - Color changes based on capacity thresholds
+
+2. **Sessions per BNG** (Pie Chart)
+   - Distribution across BNG1 and BNG2
+   - Shows load balancing effectiveness
+   - Query: `sum by (device) (...)`
+
+3. **Session History** (Time Series)
+   - Session count over time
+   - Identify peak hours and growth trends
+   - Useful for capacity planning
+
+4. **Peak Sessions** (Stat)
+   - Maximum sessions recorded
+   - Query: `subscriber_mgmt_local_user_db_ipoe_session_stats_peak`
+
+5. **Session Setup Rate** (Graph)
+   - Sessions established per second
+   - Query: `rate(subscriber_mgmt_local_user_db_ipoe_session_stats_setup[5m])`
+   - Spikes indicate mass connect/disconnect events
+
+6. **Failed Session Attempts** (Graph)
+   - Failed authentications or setups
+   - Query: `rate(..._setup_failed[5m])`
+   - High values indicate RADIUS or config issues
+
+7. **Session Success Rate** (Gauge)
+   - Percentage of successful session establishments
+   - Formula: `(successful / (successful + failed)) * 100`
+   - Should be >95% normally
+
+**Variables**:
+- `$device`: Filter by BNG (bng1, bng2, or All)
+- `$interval`: Aggregation window (5m, 15m, 1h)
+
+**Use Cases**:
+- Monitor subscriber experience
+- Detect authentication problems
+- Track session growth and churn
+- Validate BNG load balancing
+</Tab>
+  
+  <Tab title="VPLS Services">
+**Layer 2 VPN service monitoring**
+
+**Panels**:
+1. **VPLS Service State** (Status Panel)
+   - Operational state per service
+   - Query: `service_vpls_oper_state`
+   - Alerts on down services
+
+2. **SAP Statistics** (Table)
+   - Service Access Point details
+   - Columns: Service, SAP ID, State, Traffic
+   - Query: `service_vpls_sap_*`
+
+3. **SAP Traffic** (Graph)
+   - Ingress/egress per SAP
+   - Identifies high-usage subscriber connections
+
+**Use Cases**:
+- Monitor L2 VPN health
+- Troubleshoot subscriber connectivity
+- Track per-SAP bandwidth usage
+</Tab>
+  
+  <Tab title="Routing Protocols">
+**BGP and ISIS monitoring**
+
+**Panels**:
+1. **BGP Route Count** (Time Series)
+   - Total routes in RIB
+   - Query: `router_bgp_statistics_total_routes`
+   - Sudden drops indicate BGP issues
+
+2. **BGP Routes per Family** (Bar Gauge)
+   - IPv4, IPv6, VPNv4 route counts
+   - Query: `router_bgp_statistics_routes_per_family_active`
+   - Grouped by address family
+
+3. **BGP Neighbor Statistics** (Table)
+   - Received and active prefixes per neighbor
+   - Query: `router_bgp_neighbor_statistics_*`
+   - Identifies peers with issues
+
+4. **ISIS Adjacency Changes** (Graph)
+   - Rate of adjacency state changes
+   - Query: `rate(router_isis_statistics_adjacency_changes[5m])`
+   - Flapping indicates instability
+
+5. **Route Table by Protocol** (Stacked Graph)
+   - Routes from BGP, ISIS, static, etc.
+   - Query: `sum by (protocol) (router_route_table_unicast_active)`
+   - Shows routing protocol contribution
+
+**Use Cases**:
+- Monitor BGP session stability
+- Detect routing table issues
+- Troubleshoot route advertisement problems
+- Verify routing protocol operation
+</Tab>
+</Tabs>
+
+### SROS Dashboard Variables
+
+The dashboard includes dynamic variables:
+
+| Variable | Type | Values | Usage |
+|----------|------|--------|-------|
+| `$device` | Query | bng1, bng2, All | Filter by BNG device |
+| `$port` | Query | (port IDs) | Filter by specific port |
+| `$interval` | Custom | 5m, 15m, 1h | Rate calculation window |
+| `$service` | Query | (VPLS names) | Filter VPLS services |
+
+**Query Example**:
+```promql
+# Uses $device variable
+system_cpu{device="$device"}
+
+# Uses $port variable (when not "All")
+port_statistics_in_octets{device="$device",port_id="$port"}
+```
+
+### SROS Dashboard Time Ranges
+
+**Recommended time ranges**:
+
+- **Real-time monitoring**: Last 5 minutes (5s refresh)
+- **Active troubleshooting**: Last 1 hour (10s refresh)
+- **Performance review**: Last 24 hours
+- **Capacity planning**: Last 7 days
+- **Incident analysis**: Custom range around event
+
+## SR Linux Dashboard
+
+Monitoring for Nokia SR Linux switches and routers (Switch, OLT, TX).
+
+**File**: `configs/grafana/dashboards/srlinux-telemetry-lite.json`  
+**Purpose**: Monitor platform health, interface statistics, and network instances
+
+### Dashboard Layout
+
+<Tabs>
+  <Tab title="Platform Overview">
+**Control plane resources and system health**
+
+**Panels**:
+1. **CPU Usage per Slot** (Time Series)
+   - CPU percentage for each control module
+   - Query: `platform_control_cpu_total`
+   - Labels: `slot`, `index`
+
+2. **Memory Utilization** (Gauge)
+   - Physical memory usage percentage
+   - Query:
+     ```promql
+     ((platform_control_memory_physical - platform_control_memory_free) /
+       platform_control_memory_physical) * 100
+     ```
+   - Thresholds: 70% (yellow), 85% (red)
+
+3. **Free Memory** (Graph)
+   - Available memory in GB over time
+   - Query: `platform_control_memory_free / 1073741824`
+   - Trend monitoring for memory leaks
+
+4. **Application Resource Usage** (Table)
+   - Per-application CPU and memory
+   - Query: `system_app_management_application_*`
+   - Columns: App Name, CPU%, Memory (MB)
+   - Identifies resource-hungry applications
+
+**Use Cases**:
+- Monitor control plane health
+- Detect memory leaks
+- Identify misbehaving applications
+- Resource capacity planning
+</Tab>
+  
+  <Tab title="Interface Statistics">
+**Ethernet port traffic and errors**
+
+**Panels**:
+1. **Interface Operational State** (Table)
+   - Shows up/down state per interface
+   - Query: `interface_oper_state`
+   - Highlights down interfaces in red
+
+2. **Traffic Rate (bps)** (Time Series)
+   - Ingress and egress bandwidth
+   - Query:
+     ```promql
+     rate(interface_statistics_in_octets[5m]) * 8
+     rate(interface_statistics_out_octets[5m]) * 8
+     ```
+   - Separate lines per interface
+
+3. **Packet Rate (pps)** (Graph)
+   - Packets per second
+   - Query: `rate(interface_statistics_in_packets[5m])`
+   - Useful for identifying broadcast storms
+
+4. **Interface Traffic Rates** (Gauge)
+   - Real-time traffic rates from device
+   - Query: `interface_traffic_rate_in_bps`
+   - Direct measurement (not calculated)
+
+5. **Unicast/Broadcast/Multicast** (Stacked Graph)
+   - Traffic breakdown by type
+   - Queries:
+     ```promql
+     rate(interface_statistics_in_unicast_packets[5m])
+     rate(interface_statistics_in_broadcast_packets[5m])
+     rate(interface_statistics_in_multicast_packets[5m])
+     ```
+   - Identifies excessive broadcast traffic
+
+6. **Error and Discard Counters** (Graph)
+   - Errors and discards over time
+   - Query: `rate(interface_statistics_in_errors[5m])`
+   - Should be near zero
+
+7. **FCS Error Rate** (Graph)
+   - Frame check sequence errors
+   - Query: `rate(interface_statistics_in_fcs_errors[5m])`
+   - Indicates physical layer problems
+
+**Use Cases**:
+- Monitor switch port utilization
+- Detect interface errors and drops
+- Identify broadcast storms
+- Troubleshoot connectivity issues
+</Tab>
+  
+  <Tab title="Subinterfaces">
+**Logical interface statistics**
+
+**Panels**:
+1. **Subinterface Traffic** (Table)
+   - Traffic per subinterface/VLAN
+   - Query: `interface_subinterface_statistics_*`
+   - Columns: Interface, Subinterface, In/Out bytes
+
+2. **Top Subinterfaces by Traffic** (Bar Chart)
+   - Sorted by bandwidth usage
+   - Query: `topk(10, rate(interface_subinterface_statistics_in_octets[5m]))`
+
+**Use Cases**:
+- Monitor per-VLAN traffic
+- Identify high-bandwidth customers
+- Troubleshoot subinterface configuration
+</Tab>
+  
+  <Tab title="LAG Status">
+**Link Aggregation Group monitoring**
+
+**Panels**:
+1. **LACP Packet Rate** (Graph)
+   - LACP PDU exchange rate
+   - Query: `rate(interface_lag_member_lacp_statistics_lacp_in_pkts[5m])`
+   - Should be consistent (typically 1 pkt/sec)
+
+2. **LACP Errors** (Table)
+   - Shows LAG members with errors
+   - Query: `interface_lag_member_lacp_statistics_lacp_rx_errors > 0`
+   - Empty table = no errors (good)
+
+**Use Cases**:
+- Verify LAG health
+- Detect LACP misconfigurations
+- Troubleshoot link aggregation issues
+</Tab>
+  
+  <Tab title="Network Instances">
+**VRF and routing statistics**
+
+**Panels**:
+1. **Network Instance State** (Status Panel)
+   - Operational state per VRF
+   - Query: `network_instance_oper_state`
+   - Shows name and up/down status
+
+2. **IPv4 Route Count** (Time Series)
+   - Active routes per network instance
+   - Query: `network_instance_route_table_ipv4_unicast_statistics_active_routes`
+   - Track route growth/loss
+
+3. **IPv6 Route Count** (Graph)
+   - Similar to IPv4 but for IPv6
+   - Query: `network_instance_route_table_ipv6_unicast_statistics_active_routes`
+
+4. **Total Routes per VRF** (Bar Gauge)
+   - Includes both active and backup routes
+   - Query: `network_instance_route_table_ipv4_unicast_statistics_total_routes`
+
+5. **BGP Statistics** (Table)
+   - BGP paths and prefixes per network instance
+   - Query: `network_instance_protocols_bgp_statistics_*`
+
+**Use Cases**:
+- Monitor VRF health
+- Track routing table size
+- Detect route leaks or losses
+- Verify multi-VRF operation
+</Tab>
+</Tabs>
+
+### SR Linux Dashboard Variables
+
+| Variable | Type | Values | Usage |
+|----------|------|--------|-------|
+| `$device` | Query | switch, olt, tx, All | Filter by device |
+| `$interface` | Query | (interface names) | Filter specific interface |
+| `$network_instance` | Query | (VRF names) | Filter network instance |
+
+## Dashboard Usage Tips
+
+### Comparing Metrics Across Devices
+
+1. Set `$device` variable to **All**
+2. Use color coding to distinguish devices
+3. Enable legend for identification
+4. Example query:
+   ```promql
+   system_cpu
+   ```
+   Returns CPU for all devices with `device` label
+
+### Correlating Events
+
+1. Select custom time range around incident
+2. Open multiple dashboards in tabs
+3. Use same time range across all dashboards
+4. Look for correlations:
+   - CPU spike + BGP route loss?
+   - Session drops + interface errors?
+   - Memory growth + application restart?
+
+### Zooming In on Issues
+
+1. **Click and drag** on graph to zoom time range
+2. **Click legend entry** to hide/show series
+3. **Shift+click legend** to isolate single series
+4. **Double-click graph** to reset zoom
+
+### Exporting Data
+
+1. Click panel title → **Inspect** → **Data**
+2. View raw data table
+3. Click **Download CSV** to export
+4. Use for reporting or external analysis
+
+### Sharing Dashboard Views
+
+1. Set time range and variables as desired
+2. Click **Share dashboard** icon (top-right)
+3. Options:
+   - **Link**: Copy URL with current settings
+   - **Snapshot**: Create static snapshot (if enabled)
+   - **Export**: Download JSON
+
+### Creating Alert Annotations
+
+Manually mark events on graphs:
+
+1. Ctrl+click on graph at event time
+2. Select **Add annotation**
+3. Enter description (e.g., "Config change deployed")
+4. Annotation appears on all panels
+
+<Note>
+Annotations are per-dashboard and not persistent in this lab configuration.
+</Note>
+
+## Performance Optimization
+
+### Dashboard Loading Slowly
+
+**Solutions**:
+1. Reduce time range (e.g., 1h instead of 7d)
+2. Limit variable selections (specific device vs. All)
+3. Collapse unused rows
+4. Increase `$interval` variable value
+
+### Too Many Series in Graph
+
+**Solutions**:
+1. Use `topk()` to limit to top N:
+   ```promql
+   topk(10, rate(port_statistics_in_octets[5m]))
+   ```
+2. Filter by specific labels:
+   ```promql
+   interface_statistics_in_octets{name=~"ethernet-1/[1-5]"}
+   ```
+3. Use aggregation:
+   ```promql
+   sum by (device) (system_cpu)
+   ```
+
+### Query Taking Too Long
+
+**Solutions**:
+1. Reduce query range (use `[$interval]` instead of hardcoded)
+2. Add more specific label filters
+3. Use `irate()` instead of `rate()` for recent data
+4. Consider creating recording rules in Prometheus
+
+## Common Dashboard Workflows
+
+### Daily Health Check
+
+1. Open **SROS Dashboard**
+2. Check **System Status** row:
+   - CPU < 80%
+   - Memory < 85%
+   - No temperature alarms
+3. Verify **Port Statistics**:
+   - All expected ports UP
+   - No error counters increasing
+4. Review **BNG Sessions**:
+   - Session count within normal range
+   - No failed session spikes
+
+### Troubleshooting Subscriber Issue
+
+1. Open **SROS Dashboard**
+2. Set time range to incident window
+3. Check **BNG Sessions** row:
+   - Session drops?
+   - Failed authentications?
+4. Review **Port Statistics**:
+   - Interface errors on subscriber-facing ports?
+   - Traffic patterns abnormal?
+5. Check **VPLS Services**:
+   - SAP down?
+   - Service state issues?
+
+### Capacity Planning
+
+1. Set time range to **Last 30 days**
+2. **SROS Dashboard** → System Status:
+   - CPU trend (linear regression)
+   - Memory growth rate
+3. **BNG Sessions**:
+   - Peak session count
+   - Growth rate (sessions/day)
+4. **Port Statistics**:
+   - Max interface utilization
+   - 95th percentile traffic rates
+5. Export data for external analysis
+
+### Incident Analysis
+
+1. Identify incident time window
+2. Open all dashboards in separate tabs
+3. Set same custom time range on all
+4. Look for anomalies:
+   - CPU/memory spikes
+   - Route count changes
+   - Interface state changes
+   - Error rate increases
+5. Take screenshots for incident report
+6. Export relevant panel data
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Available Metrics" icon="list" href="/telemetry/available-metrics">
+    Explore all metrics used in dashboards
+  </Card>
+  
+  <Card title="Customize Grafana" icon="pencil" href="/telemetry/grafana">
+    Learn to create custom dashboards
+  </Card>
+</CardGroup>

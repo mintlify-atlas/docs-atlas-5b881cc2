@@ -1,0 +1,494 @@
+---
+title: BNG1 Configuration Reference
+description: Complete Nokia BNG1 device configuration including system setup, RADIUS, NAT, DHCP, and subscriber management
+---
+
+# BNG1 Configuration Reference
+
+Complete configuration reference for the BNG1 (Nokia 7750 SR) router in the lab environment.
+
+## Overview
+
+**Device**: Nokia 7750 SR (BNG1)
+**Role**: Primary Broadband Network Gateway
+**Management IP**: 10.77.1.2
+**System IP**: 1.1.1.1/32
+
+## Configuration Sections
+
+<Accordion title="System Configuration">
+
+### Basic System Setup
+
+```sros
+# System Name
+/configure system name "BNG1"
+
+# Time Zone
+/configure system time zone standard name est
+
+# Management Interfaces
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+/configure system grpc rib-api admin-state enable
+
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# SNMP
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+```
+
+### User Configuration
+
+```sros
+/configure system security user-params local-user user "admin" restricted-to-home false
+/configure system security user-params local-user user "admin" access console true
+/configure system security user-params local-user user "admin" access ftp true
+/configure system security user-params local-user user "admin" access netconf true
+/configure system security user-params local-user user "admin" access grpc true
+/configure system security user-params local-user user "admin" password "lab123"
+/configure system security user-params local-user user "admin" console member ["administrative"]
+```
+
+</Accordion>
+
+<Accordion title="Hardware Configuration">
+
+### Cards and MDAs
+
+```sros
+# IOM Card
+/configure card 1 card-type iom5-e
+/configure card 1 mda 1 mda-type me6-100gb-qsfp28
+
+# ISA Card for NAT
+/configure card 2 card-type iom4-e-b
+/configure card 2 mda 1 mda-type isa2-bb
+
+# SFM
+/configure sfm 1 sfm-type m-sfm6-7/12
+```
+
+### Port Configuration
+
+```sros
+# Port to TX/Switch (Subscriber Traffic)
+/configure port 1/1/c1 admin-state enable
+/configure port 1/1/c1 connector breakout c1-100g
+/configure port 1/1/c1/1 admin-state enable
+/configure port 1/1/c1/1 ethernet mode hybrid
+/configure port 1/1/c1/1 ethernet encap-type qinq
+
+# Port to iPerf Server (Internet)
+/configure port 1/1/c2 admin-state enable
+/configure port 1/1/c2 connector breakout c1-100g
+/configure port 1/1/c2/1 admin-state enable
+/configure port 1/1/c2/1 ethernet mode hybrid
+```
+
+</Accordion>
+
+<Accordion title="RADIUS Configuration">
+
+### Management Router RADIUS
+
+```sros
+/configure router "management" radius
+/configure router "management" radius server "radius"
+/configure router "management" radius server "radius" address 10.77.1.10
+/configure router "management" radius server "radius" secret testlab123
+/configure router "management" radius server "radius" accept-coa true
+```
+
+### RADIUS Server Policy
+
+```sros
+/configure aaa radius server-policy "radius_policy"
+/configure aaa radius server-policy "radius_policy" servers retry-count 5
+/configure aaa radius server-policy "radius_policy" servers router-instance "management"
+/configure aaa radius server-policy "radius_policy" servers source-address 10.77.1.2
+/configure aaa radius server-policy "radius_policy" servers server 1 server-name "radius"
+/configure aaa radius server-policy "radius_policy" acct-on-off
+```
+
+### Accounting Policy
+
+```sros
+/configure subscriber-mgmt radius-accounting-policy "accounting"
+/configure subscriber-mgmt radius-accounting-policy "accounting" radius-server-policy "radius_policy"
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-id-format number
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting admin-state enable
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting interim-update true
+/configure subscriber-mgmt radius-accounting-policy "accounting" session-accounting host-update true
+/configure subscriber-mgmt radius-accounting-policy "accounting" update-interval interval 720
+```
+
+### Authentication Policy
+
+```sros
+/configure subscriber-mgmt radius-authentication-policy "autpolicy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" password testlab123
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" pppoe-access-method pap-chap
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" radius-server-policy "radius_policy"
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" re-authentication true
+/configure subscriber-mgmt radius-authentication-policy "autpolicy" fallback action user-db "clientes"
+```
+
+</Accordion>
+
+<Accordion title="QoS Configuration">
+
+### SAP Ingress QoS
+
+```sros
+/configure qos sap-ingress "10"
+/configure qos sap-ingress "10" queue 1
+/configure qos sap-ingress "10" queue 11 multipoint true
+/configure qos sap-ingress "10" fc "af" queue 1
+/configure qos sap-ingress "10" fc "be" queue 1
+/configure qos sap-ingress "10" fc "ef" queue 1
+/configure qos sap-ingress "10" fc "h1" queue 1
+/configure qos sap-ingress "10" fc "h2" queue 1
+/configure qos sap-ingress "10" fc "l1" queue 1
+/configure qos sap-ingress "10" fc "l2" queue 1
+/configure qos sap-ingress "10" fc "nc" queue 1
+```
+
+### SAP Egress QoS
+
+```sros
+/configure qos sap-egress "10"
+/configure qos sap-egress "10" queue 1
+/configure qos sap-egress "10" fc be queue 1
+/configure qos sap-egress "10" fc l2 queue 1
+/configure qos sap-egress "10" fc af queue 1
+/configure qos sap-egress "10" fc l1 queue 1
+/configure qos sap-egress "10" fc h2 queue 1
+/configure qos sap-egress "10" fc ef queue 1
+/configure qos sap-egress "10" fc h1 queue 1
+/configure qos sap-egress "10" fc nc queue 1
+```
+
+</Accordion>
+
+<Accordion title="Subscriber Management (ESM)">
+
+### IPoE Session Policy
+
+```sros
+/configure subscriber-mgmt ipoe-session-policy "ipoe"
+```
+
+### PPPoE Policy
+
+```sros
+/configure subscriber-mgmt ppp-policy "pppoe"
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-authentication pref-pap
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-initial-delay true
+/configure subscriber-mgmt ppp-policy "pppoe" ppp-mtu 1500
+/configure subscriber-mgmt ppp-policy "pppoe" reply-on-padt true
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive interval 10
+/configure subscriber-mgmt ppp-policy "pppoe" keepalive hold-up-multiplier 4
+```
+
+### Subscriber Profile
+
+```sros
+/configure subscriber-mgmt sub-profile "subprofile"
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting policy ["accounting"]
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting session-optimized-stop true
+```
+
+### SLA Profile (100M)
+
+```sros
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress policy-name "10"
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 stat-mode v4-v6
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate pir 100000
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate cir 100000
+/configure subscriber-mgmt sla-profile "100M" host-limits overall 10
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv4 dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 pd-ipoe-dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 wan-ipoe-dhcp 1
+/configure subscriber-mgmt sla-profile "100M" ingress ip-filter "10"
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress policy-name "10"
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 stat-mode v4-v6
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 rate pir 100000
+/configure subscriber-mgmt sla-profile "100M" ingress qos sap-ingress overrides queue 1 rate cir 100000
+```
+
+### MSAP Policy
+
+```sros
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt subscriber-limit 131071
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt sub-ident-policy "subident"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sla-profile "100M"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sub-profile "subprofile"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults subscriber-id auto-id
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt single-sub-parameters profiled-traffic-only true
+/configure subscriber-mgmt msap-policy "msap" ies-vprn-only-sap-parameters anti-spoof next-hop-ip-and-mac-addr
+/configure subscriber-mgmt msap-policy "msap" ies-vprn-only-sap-parameters ingress qos queuing-type service
+```
+
+</Accordion>
+
+<Accordion title="NAT Configuration">
+
+### ISA NAT Group
+
+```sros
+/configure isa nat-group 1 admin-state enable
+/configure isa nat-group 1 redundancy active-mda-limit 1
+/configure isa nat-group 1 session-limits watermarks low 80
+/configure isa nat-group 1 session-limits watermarks high 90
+/configure isa nat-group 1 mda 2/1
+```
+
+### NAT Filter
+
+```sros
+/configure filter ip-filter "10" default-action accept
+/configure filter ip-filter "10" entry 1 match dst-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 1 match dst-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 1 action accept
+/configure filter ip-filter "10" entry 2 match src-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 2 match src-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 2 action nat
+```
+
+### VPRN 9999 (NAT Outside)
+
+```sros
+/configure service vprn "9999" admin-state enable
+/configure service vprn "9999" customer "1"
+/configure service vprn "9999" autonomous-system 65520
+/configure service vprn "9999" nat outside
+/configure service vprn "9999" nat outside pool "dtpool" admin-state enable
+/configure service vprn "9999" nat outside pool "dtpool" type large-scale
+/configure service vprn "9999" nat outside pool "dtpool" nat-group 1
+/configure service vprn "9999" nat outside pool "dtpool" mode napt
+/configure service vprn "9999" nat outside pool "dtpool" large-scale subscriber-limit 8
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic port-reservation 64
+/configure service vprn "9999" nat outside pool "dtpool" address-range 99.99.99.99 end 99.99.99.99
+
+# Interface to iPerf
+/configure service vprn "9999" interface "to_iperf" admin-state enable
+/configure service vprn "9999" interface "to_iperf" ipv4 primary address 172.19.1.2
+/configure service vprn "9999" interface "to_iperf" ipv4 primary prefix-length 30
+/configure service vprn "9999" interface "to_iperf" sap 1/1/c2/1:0 admin-state enable
+```
+
+### NAT Policy
+
+```sros
+/configure service nat nat-policy "natpol"
+/configure service nat nat-policy "natpol" pool router-instance "9999"
+/configure service nat nat-policy "natpol" pool name "dtpool"
+/configure service nat nat-policy "natpol" alg pptp true
+/configure service nat nat-policy "natpol" alg rtsp true
+/configure service nat nat-policy "natpol" alg sip true
+```
+
+### VPRN 9998 (NAT Inside)
+
+```sros
+/configure service vprn "9998" admin-state enable
+/configure service vprn "9998" customer "1"
+/configure service vprn "9998" management allow-ftp true
+/configure service vprn "9998" management allow-ssh true
+/configure service vprn "9998" management allow-netconf true
+/configure service vprn "9998" management allow-grpc true
+
+/configure service vprn "9998" nat inside
+/configure service vprn "9998" nat inside large-scale nat44 max-subscriber-limit 8
+/configure service vprn "9998" nat inside large-scale nat44 deterministic
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol"
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" admin-state enable
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7 first-outside-address 99.99.99.99
+```
+
+</Accordion>
+
+<Accordion title="DHCP Servers">
+
+### DHCPv4 Server
+
+```sros
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-gi-address
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-pool-from-client
+
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat"
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" minimum-free percent 3
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option dns-server ipv4-address [8.8.8.8 8.8.4.4]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option lease-time duration 315446399
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 options option default-router ipv4-address [100.80.0.1]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 address-range 100.80.0.2 end 100.80.0.7
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 exclude-addresses 100.80.0.1 end 100.80.0.1
+```
+
+### DHCPv6 Server
+
+```sros
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-pool-from-client
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-link-address scope subnet
+
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix minimum 56
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix maximum 64
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" options option dns-server ipv6-address [2001:4860:4860::8888 2001:4860:4860::8844]
+
+# WAN Host Prefix
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type wan-host true
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type pd false
+
+# Prefix Delegation
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type wan-host false
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type pd true
+```
+
+### Loopback Interface
+
+```sros
+/configure service vprn "9998" interface "loopback" admin-state enable
+/configure service vprn "9998" interface "loopback" loopback true
+/configure service vprn "9998" interface "loopback" ipv4 local-dhcp-server "suscriptores"
+/configure service vprn "9998" interface "loopback" ipv4 primary address 9.9.9.9
+/configure service vprn "9998" interface "loopback" ipv4 primary prefix-length 32
+/configure service vprn "9998" interface "loopback" ipv6 local-dhcp-server "suscriptores_v6"
+/configure service vprn "9998" interface "loopback" ipv6 address fd07:47::aaaa prefix-length 128
+```
+
+</Accordion>
+
+<Accordion title="Subscriber Interface & Group Interface">
+
+### Subscriber Interface
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" wan-mode mode128
+
+# IPv4
+/configure service vprn "9998" subscriber-interface "services" ipv4 allow-unmatching-subnets true
+/configure service vprn "9998" subscriber-interface "services" ipv4 default-dns [8.8.8.8 8.8.4.4]
+/configure service vprn "9998" subscriber-interface "services" ipv4 address 100.80.0.1 prefix-length 29
+/configure service vprn "9998" subscriber-interface "services" ipv4 dhcp gi-address 100.80.0.1
+
+# IPv6
+/configure service vprn "9998" subscriber-interface "services" ipv6 allow-unmatching-prefixes true
+/configure service vprn "9998" subscriber-interface "services" ipv6 delegated-prefix-length variable
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:100::/56 host-type wan
+/configure service vprn "9998" subscriber-interface "services" ipv6 prefix 2001:db8:200::/48 host-type pd
+/configure service vprn "9998" subscriber-interface "services" ipv6 link-local-address address fe80::7e20:64ff:fe84:8365
+```
+
+### Group Interface
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" radius-auth-policy "autpolicy"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ingress-stats true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" oper-up-while-empty true
+
+# IPv4 DHCP Proxy
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 urpf-check mode strict-no-ecmp
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 neighbor-discovery populate true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp server [9.9.9.9]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp trusted true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp gi-address 100.80.0.1
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server emulated-server 100.80.0.1
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp lease-populate max-leases 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications ppp true
+
+# IPv6 DHCPv6 Relay
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 urpf-check mode strict-no-ecmp
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 pd-managed-route
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay link-address 2001:db8:100::
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay server ["fd07:47::aaaa"]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications ppp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 proxy-server admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options other-stateful-configuration true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements prefix-options autonomous false
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options managed-configuration true
+
+# IPoE Session
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session ipoe-session-policy "ipoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session user-db "clientes"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session sap-session-limit 131071
+
+# PPPoE Session
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe policy "pppoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe sap-session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" pppoe user-db "clientes"
+```
+
+</Accordion>
+
+<Accordion title="VPLS Capture SAP">
+
+```sros
+/configure service vpls "capture-sap" admin-state enable
+/configure service vpls "capture-sap" service-id 2
+/configure service vpls "capture-sap" customer "1"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.*
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* radius-auth-policy "autpolicy"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults policy "msap"
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults service 9998
+/configure service vpls "capture-sap" capture-sap 1/1/c1/1:*.* msap-defaults group-interface "gi"
+```
+
+</Accordion>
+
+## Key Configuration Highlights
+
+### NAT Configuration
+- **NAT Pool**: 99.99.99.99/32
+- **Inside Subnet**: 100.80.0.0/29 (100.80.0.2 - 100.80.0.7)
+- **Port Reservation**: 64 ports per subscriber
+- **Max Subscribers**: 8
+- **Type**: Deterministic large-scale NAT44
+
+### DHCP Pools
+- **IPv4**: 100.80.0.2 - 100.80.0.7 (6 addresses)
+- **IPv6 WAN**: 2001:db8:100::/56
+- **IPv6 PD**: 2001:db8:200::/48
+- **Lease Time**: 315446399 seconds (10 years)
+
+### Session Limits
+- **IPoE Sessions**: 131,071
+- **PPPoE Sessions**: 131,071
+- **Max Hosts per Subscriber**: 10
+
+### QoS Bandwidth
+- **PIR**: 100 Mbps
+- **CIR**: 100 Mbps
+
+## Related Pages
+
+- [BNG2 Configuration](/reference/bng2-config)
+- [NAT Configuration](/reference/nat-configuration)
+- [IPoE Service](/reference/ipoe-service)
+- [PPPoE Service](/reference/pppoe-service)

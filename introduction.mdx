@@ -1,0 +1,412 @@
+---
+title: 'Introduction to Nokia BNG Lab'
+description: 'Containerlab-based network laboratory for Nokia BNG deployment with dual-stack support, network sharing, and telemetry'
+---
+
+# Nokia BNG Lab
+
+A comprehensive Containerlab-based network laboratory for deploying and testing Nokia Broadband Network Gateway (BNG) infrastructure with dual-stack IPv4/IPv6 support, network sharing capabilities, and full telemetry stack.
+
+<Note>
+This lab simulates a **Red Neutral** (Neutral Network) architecture where multiple ISPs share the same access infrastructure to deliver broadband services.
+</Note>
+
+## What is Nokia BNG Lab?
+
+Nokia BNG Lab is a production-ready network laboratory that provides a complete environment for learning, testing, and validating Nokia BNG deployments. The lab includes:
+
+- **Dual BNG routers** (SR-7) simulating multi-ISP scenarios
+- **Access network** with OLT/ONT for fiber-to-the-home (FTTH) simulation
+- **Transport network** with SR Linux-based switching
+- **Authentication** via FreeRADIUS with RADIUS policies
+- **Telemetry stack** (gNMIc + Prometheus + Grafana) for real-time monitoring
+- **NAT/CGNAT** capabilities with ISA cards
+- **Traffic testing** with integrated iPerf servers
+
+## Key Components
+
+The lab topology consists of these core network elements:
+
+### BNG Routers (Nokia SR-7)
+
+<CodeGroup>
+```yaml BNG1 Configuration
+bng1:
+  kind: nokia_srsim
+  image: localhost/nokia/srsim:25.10.R2
+  type: sr-7
+  mgmt-ipv4: 10.77.1.2
+  components:
+    - slot: 1
+      type: iom5-e
+      env:
+        NOKIA_SROS_MDA_1: me6-100gb-qsfp28
+    - slot: 2
+      type: iom4-e-b
+      env:
+        NOKIA_SROS_MDA_1: isa2-bb  # For NAT/CGNAT
+  ports:
+    - 56661:22      # SSH
+    - 56662:57400   # gNMI
+    - 56663:830     # NETCONF
+```
+
+```yaml BNG2 Configuration
+bng2:
+  kind: nokia_srsim
+  image: localhost/nokia/srsim:25.10.R2
+  type: sr-7
+  mgmt-ipv4: 10.77.1.3
+  components:
+    - slot: 1
+      type: iom5-e
+      env:
+        NOKIA_SROS_MDA_1: me6-100gb-qsfp28
+    - slot: 2
+      type: iom4-e-b
+      env:
+        NOKIA_SROS_MDA_1: isa2-bb  # For NAT/CGNAT
+  ports:
+    - 56664:22      # SSH
+    - 56665:57400   # gNMI
+    - 56666:830     # NETCONF
+```
+</CodeGroup>
+
+Two Nokia SR-7 routers configured as BNG nodes, each representing a different ISP in a network sharing scenario. Both include:
+- **IOM5-E cards** with 100Gb QSFP28 ports for access interfaces
+- **IOM4-E-B cards** with ISA2-BB for NAT/CGNAT functionality
+- Full management access via SSH, gNMI, and NETCONF
+
+### Access Network
+
+**OLT (Optical Line Terminal)**
+```yaml
+olt:
+  kind: nokia_srsim
+  type: ixr-ec
+  mgmt-ipv4: 10.77.1.5
+  ports:
+    - 56678:22
+```
+
+**ONT Devices (Optical Network Terminals)**
+```yaml
+# ONT1 - IPoE subscriber
+ont1:
+  kind: linux
+  image: ghcr.io/abelperezr/ont-ds:0.2
+  env:
+    CONNECTION_TYPE: ipoe
+    VLAN_ID: "150"
+    MAC_ADDRESS: "00:D0:F6:01:01:01"
+  ports:
+    - 56673:22
+    - 8081:8080
+
+# ONT2 - PPPoE subscriber  
+ont2:
+  kind: linux
+  image: ghcr.io/abelperezr/ont-ds:0.2
+  env:
+    CONNECTION_TYPE: pppoe
+    PPP_USER: "test@test.com"
+    PPP_PASS: "testlab123"
+    VLAN_ID: "150"
+    MAC_ADDRESS: "00:D0:F6:01:01:02"
+  ports:
+    - 56674:22
+    - 8082:8080
+```
+
+### Transport Network
+
+**TX Switch (Nokia SR Linux)**
+```yaml
+tx:
+  kind: nokia_srlinux
+  image: ghcr.io/nokia/srlinux:25.10
+  mgmt-ipv4: 10.77.1.16
+  ports:
+    - 56676:22
+```
+
+Aggregation switch connecting both BNG routers, simulating a Layer 2 transport network (as the transport service is typically leased and doesn't require IS-IS or MPLS).
+
+**Access Switch (Nokia IXR-ec)**
+```yaml
+switch:
+  kind: nokia_srsim
+  type: ixr-ec
+  mgmt-ipv4: 10.77.1.4
+  ports:
+    - 56667:22
+```
+
+### Authentication (RADIUS)
+
+```yaml
+radius:
+  kind: linux
+  image: ghcr.io/srl-labs/network-multitool
+  mgmt-ipv4: 10.77.1.10
+  binds:
+    - configs/radius/clients.conf:/etc/raddb/clients.conf
+    - configs/radius/radiusd.conf:/etc/raddb/radiusd.conf
+    - configs/radius/authorize:/etc/raddb/mods-config/files/authorize
+```
+
+FreeRADIUS server configured with subscriber profiles:
+
+<Accordion title="RADIUS Subscriber Configuration">
+```text
+# IPoE subscriber (ONT1)
+00:d0:f6:01:01:01   Cleartext-Password := "testlab123"
+                    Framed-Pool = "cgnat",
+                    Framed-IPv6-Pool = "IPv6",
+                    Alc-Delegated-IPv6-Pool = "IPv6",
+                    Alc-SLA-Prof-str = "100M",
+                    Alc-Subsc-Prof-str = "subprofile",
+                    Alc-Subsc-ID-Str = "ONT-001"
+
+# PPPoE subscriber (ONT2)
+"test@test.com"     Cleartext-Password := "testlab123"
+                    Framed-Pool = "cgnat",
+                    Framed-IPv6-Pool = "IPv6",
+                    Alc-Delegated-IPv6-Pool = "IPv6",
+                    Alc-SLA-Prof-str = "100M",
+                    Alc-Subsc-Prof-str = "subprofile",
+                    Alc-Subsc-ID-Str = "ONT-002-PPPOE"
+```
+</Accordion>
+
+### Telemetry Stack
+
+Complete observability solution for monitoring network performance:
+
+**gNMIc (Telemetry Collector)**
+```yaml
+gnmic:
+  kind: linux
+  image: ghcr.io/openconfig/gnmic:latest
+  mgmt-ipv4: 10.77.1.12
+  binds:
+    - configs/gnmic/config.yml:/gnmic-config.yml:ro
+  cmd: --config /gnmic-config.yml --log subscribe
+```
+
+Collects metrics via gNMI/gRPC from all Nokia devices:
+- Port statistics and operational states
+- CPU and memory usage
+- Interface traffic rates
+- BGP and routing statistics
+- Subscriber management metrics (LUDB)
+- Temperature and fan statistics
+
+**Prometheus (Time-Series Database)**
+```yaml
+prometheus:
+  kind: linux
+  image: prom/prometheus
+  mgmt-ipv4: 10.77.1.13
+  ports:
+    - 9090:9090
+  binds:
+    - configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+```
+
+Stores metrics scraped from gNMIc at 5-second intervals.
+
+**Grafana (Visualization)**
+```yaml
+grafana:
+  kind: linux
+  image: grafana/grafana:10.3.5
+  mgmt-ipv4: 10.77.1.14
+  ports:
+    - 3030:3000
+  env:
+    GF_SECURITY_ADMIN_PASSWORD: admin
+  binds:
+    - configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml:ro
+    - configs/grafana/dashboards:/var/lib/grafana/dashboards
+```
+
+Pre-configured dashboards for visualizing BNG operations.
+
+### Traffic Testing
+
+**iPerf Server**
+```yaml
+iperf:
+  kind: linux
+  image: ghcr.io/srl-labs/network-multitool
+  mgmt-ipv4: 10.77.1.15
+  ports:
+    - 56675:22
+```
+
+Connected to both BNG routers for throughput and performance testing.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         RED NEUTRAL - BNG LAB                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│    ┌─────────┐         ┌─────────┐         ┌─────────┐                 │
+│    │  BNG1   │◄───────►│   TX    │◄───────►│  BNG2   │                 │
+│    │SR-7     │         │SR Linux │         │ SR-7    │                 │
+│    └────┬────┘         └────┬────┘         └────┬────┘                 │
+│         │                   │                   │                       │
+│         │              ┌────┴────┐              │                       │
+│         │              │ Switch  │              │                       │
+│         │              │ IXR-ec  │              │                       │
+│         │              └────┬────┘              │                       │
+│         │                   │                   │                       │
+│         │              ┌────┴────┐              │                       │
+│    ┌────┴────┐         │   OLT   │         ┌────┴────┐                 │
+│    │  iPerf  │         │ IXR-ec  │         │ RADIUS  │                 │
+│    └─────────┘         └────┬────┘         └─────────┘                 │
+│                             │                                           │
+│                     ┌───────┴───────┐                                   │
+│                     │               │                                   │
+│                 ┌───┴───┐       ┌───┴───┐                              │
+│                 │ ONT1  │       │ ONT2  │                              │
+│                 └───┬───┘       └───────┘                              │
+│                     │                                                   │
+│                 ┌───┴───┐                                              │
+│                 │  PC1  │                                              │
+│                 └───────┘                                              │
+│                                                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TELEMETRÍA: gNMIc → Prometheus → Grafana                              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Network Details
+
+**Management Network**
+- Network: `lab`
+- Subnet: `10.77.1.0/24`
+- All nodes accessible via management IPs
+
+**Service VLANs**
+- VLAN 150: Subscriber services (IPoE/PPPoE)
+
+**Transport Design**
+- Pure Layer 2 transport (no IS-IS, MPLS, or routing protocols between sites)
+- Simulates leased transport service scenario
+
+## Use Cases and Learning Objectives
+
+This lab is ideal for:
+
+<Steps>
+  <Step title="BNG Fundamentals">
+    Learn Nokia BNG configuration including subscriber management, authentication policies, and service profiles.
+  </Step>
+  
+  <Step title="Dual-Stack Deployment">
+    Practice IPv4 and IPv6 address allocation, including DHCPv4, DHCPv6, and IPv6 prefix delegation.
+  </Step>
+  
+  <Step title="Network Sharing">
+    Understand multi-ISP architectures where different service providers share access infrastructure.
+  </Step>
+  
+  <Step title="NAT/CGNAT">
+    Configure and validate Carrier-Grade NAT using Nokia ISA cards for IPv4 address conservation.
+  </Step>
+  
+  <Step title="IPoE and PPPoE">
+    Deploy both IPoE (DHCP-based) and PPPoE subscribers with RADIUS authentication.
+  </Step>
+  
+  <Step title="Telemetry and Monitoring">
+    Implement modern network observability using gNMI, streaming telemetry, and Grafana dashboards.
+  </Step>
+  
+  <Step title="RADIUS Integration">
+    Configure FreeRADIUS with Nokia-specific VSAs (Vendor-Specific Attributes) for subscriber policy assignment.
+  </Step>
+</Steps>
+
+## Technology Stack
+
+| Component | Technology | Version |
+|-----------|------------|--------|
+| **Orchestration** | Containerlab | v0.50+ |
+| **BNG/OLT** | Nokia SR OS Simulator | 25.10.R2 |
+| **Transport** | Nokia SR Linux | 25.10 |
+| **Telemetry Collector** | gNMIc | latest |
+| **Metrics Storage** | Prometheus | latest |
+| **Visualization** | Grafana | 10.3.5 |
+| **Authentication** | FreeRADIUS | bundled |
+| **Container Runtime** | Docker | v24+ |
+
+<Warning>
+**License Requirement**: This lab requires valid Nokia SR-SIM licenses. Licenses are NOT included in the repository and must be obtained separately from Nokia. Place your license file at `configs/license/SR_SIM_license.txt` before deployment.
+</Warning>
+
+## Repository Structure
+
+```bash
+nokia-bng-lab/
+├── lab.yml                     # Containerlab topology definition
+├── configs/
+│   ├── sros/                   # BNG router configurations
+│   │   ├── config-bng.txt      # BNG1 startup config
+│   │   └── config-bng-2.txt    # BNG2 startup config
+│   ├── switch/                 # Switch configurations
+│   │   ├── switch.txt          # Access switch config
+│   │   └── srl.txt             # TX (SR Linux) config
+│   ├── olt/
+│   │   └── olt.txt             # OLT configuration
+│   ├── radius/                 # RADIUS server configs
+│   │   ├── clients.conf        # RADIUS clients
+│   │   ├── radiusd.conf        # Main RADIUS config
+│   │   └── authorize           # Subscriber database
+│   ├── grafana/                # Grafana dashboards
+│   │   ├── datasource.yml
+│   │   ├── dashboards.yml
+│   │   └── dashboards/
+│   ├── prometheus/
+│   │   └── prometheus.yml      # Scrape configuration
+│   ├── gnmic/
+│   │   └── config.yml          # gNMI subscriptions
+│   └── license/                # ⚠️ Place Nokia licenses here
+│       └── SR_SIM_license.txt  # (not included)
+└── docs/                       # Documentation
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Deploy the lab in minutes with step-by-step instructions
+  </Card>
+  
+  <Card title="Configuration Guide" icon="gear" href="/configuration/bng-devices">
+    Learn about BNG configuration and subscriber management
+  </Card>
+  
+  <Card title="Telemetry Setup" icon="chart-line" href="/telemetry/overview">
+    Configure and customize monitoring dashboards
+  </Card>
+  
+  <Card title="Troubleshooting" icon="wrench" href="/operations/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>
+
+## Credits
+
+**Author**: Abel Pérez  
+**Role**: Network Automation Engineer  
+**Project**: Nokia BNG Lab - Red Neutral  
+
+<Note>
+This laboratory was designed with Layer 2 transport services in mind, as the transport network is typically leased infrastructure. This is why protocols like IS-IS, MPLS, or other routing protocols are not configured between sites.
+</Note>

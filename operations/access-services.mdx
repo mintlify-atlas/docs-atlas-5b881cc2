@@ -1,0 +1,379 @@
+---
+title: Access Services
+description: How to access all lab services, devices, and interfaces
+---
+
+This guide provides comprehensive access information for all services and devices in the Nokia BNG lab.
+
+## SSH Access to Network Devices
+
+All Nokia devices use the following default credentials:
+- **Username**: `admin`
+- **Password**: `lab123`
+
+### BNG Routers
+
+<Steps>
+  <Step title="Access BNG1 (SR-7)">
+    ```bash
+    ssh admin@localhost -p 56661
+    # Management IP: 10.77.1.2
+    ```
+    
+    <Note>
+    BNG1 also exposes:
+    - **gRPC/gNMI**: Port 56662 (internal: 57400)
+    - **NETCONF**: Port 56663 (internal: 830)
+    </Note>
+  </Step>
+
+  <Step title="Access BNG2 (SR-7)">
+    ```bash
+    ssh admin@localhost -p 56664
+    # Management IP: 10.77.1.3
+    ```
+    
+    <Note>
+    BNG2 also exposes:
+    - **gRPC/gNMI**: Port 56665 (internal: 57400)
+    - **NETCONF**: Port 56666 (internal: 830)
+    </Note>
+  </Step>
+</Steps>
+
+### Access Network Devices
+
+<Accordion title="Switch (IXR-ec)">
+  ```bash
+  ssh admin@localhost -p 56667
+  # Management IP: 10.77.1.4
+  ```
+  
+  **Additional Ports:**
+  - gRPC/gNMI: 56668 (internal: 57400)
+  - NETCONF: 56669 (internal: 830)
+</Accordion>
+
+<Accordion title="OLT (IXR-ec)">
+  ```bash
+  ssh admin@localhost -p 56678
+  # Management IP: 10.77.1.5
+  ```
+  
+  **Additional Ports:**
+  - gRPC/gNMI: 56671 (internal: 57400)
+  - NETCONF: 56672 (internal: 830)
+</Accordion>
+
+<Accordion title="TX Router (SR Linux)">
+  ```bash
+  ssh admin@localhost -p 56676
+  # Management IP: 10.77.1.16
+  ```
+  
+  <Tip>
+  SR Linux uses `admin/lab123` credentials and includes custom `.srlinuxrc` configuration.
+  </Tip>
+</Accordion>
+
+### Subscriber Devices (ONTs)
+
+<Accordion title="ONT1 - IPoE Subscriber">
+  ```bash
+  ssh user@localhost -p 56673
+  # Password: test
+  # Management IP: 10.77.1.6
+  ```
+  
+  **Configuration:**
+  - Connection Type: IPoE
+  - VLAN ID: 150
+  - MAC Address: `00:D0:F6:01:01:01`
+  - Web UI: http://localhost:8081
+</Accordion>
+
+<Accordion title="ONT2 - PPPoE Subscriber">
+  ```bash
+  ssh user@localhost -p 56674
+  # Password: test
+  # Management IP: 10.77.1.7
+  ```
+  
+  **Configuration:**
+  - Connection Type: PPPoE
+  - PPP Username: `test@test.com`
+  - PPP Password: `testlab123`
+  - VLAN ID: 150
+  - MAC Address: `00:D0:F6:01:01:02`
+  - Web UI: http://localhost:8082
+</Accordion>
+
+### Test Devices
+
+<Accordion title="iPerf Server">
+  ```bash
+  ssh root@localhost -p 56675
+  # Management IP: 10.77.1.15
+  ```
+  
+  **Network Configuration:**
+  - eth1: 172.19.1.1/30 (connected to BNG1)
+  - eth2: 172.20.1.1/30 (connected to BNG2)
+  - Default route via 172.19.1.2
+</Accordion>
+
+<Accordion title="PC1 (Test Client)">
+  ```bash
+  ssh root@localhost -p 56677
+  # Management IP: 10.77.1.17
+  ```
+  
+  <Note>
+  PC1 is configured for SLAAC (IPv6 autoconfiguration) and connected to ONT1.
+  </Note>
+</Accordion>
+
+## Web UI Access
+
+### Grafana Dashboard
+
+<Steps>
+  <Step title="Access Grafana">
+    Open your browser and navigate to:
+    ```
+    http://localhost:3030
+    ```
+  </Step>
+
+  <Step title="Login Credentials">
+    - **Username**: `admin`
+    - **Password**: `admin`
+    
+    <Note>
+    Anonymous access is also enabled with Editor role for the Main Org.
+    </Note>
+  </Step>
+
+  <Step title="Available Dashboards">
+    Pre-configured dashboards for:
+    - Nokia SROS metrics
+    - Interface statistics
+    - BNG subscriber sessions
+    - System resources (CPU, memory)
+  </Step>
+</Steps>
+
+### Prometheus Metrics
+
+```
+http://localhost:9090
+```
+
+<Tip>
+Prometheus scrapes metrics from gNMIc every 5 seconds. Access the Targets page at http://localhost:9090/targets to verify scraping status.
+</Tip>
+
+## Management Network Access
+
+The lab uses a dedicated management network:
+
+```yaml
+Network: lab
+Subnet: 10.77.1.0/24
+Gateway: Managed by Containerlab
+```
+
+### IP Address Allocation
+
+| Device | Management IP | Purpose |
+|--------|--------------|----------|
+| bng1 | 10.77.1.2 | BNG Router ISP 1 |
+| bng2 | 10.77.1.3 | BNG Router ISP 2 |
+| switch | 10.77.1.4 | Aggregation Switch |
+| olt | 10.77.1.5 | Optical Line Terminal |
+| ont1 | 10.77.1.6 | IPoE Subscriber |
+| ont2 | 10.77.1.7 | PPPoE Subscriber |
+| radius | 10.77.1.10 | RADIUS Server |
+| gnmic | 10.77.1.12 | Telemetry Collector |
+| prometheus | 10.77.1.13 | Metrics Database |
+| grafana | 10.77.1.14 | Visualization |
+| iperf | 10.77.1.15 | Traffic Generator |
+| tx | 10.77.1.16 | Transit Router |
+| pc1 | 10.77.1.17 | Test Client |
+
+## Container Access
+
+### Direct Container Shell Access
+
+<Steps>
+  <Step title="List Running Containers">
+    ```bash
+    sudo containerlab inspect -t lab.yml
+    ```
+  </Step>
+
+  <Step title="Access Container Shell">
+    ```bash
+    # General format
+    docker exec -it clab-lab-<node-name> /bin/bash
+    
+    # Examples
+    docker exec -it clab-lab-bng1 sr_cli
+    docker exec -it clab-lab-grafana /bin/bash
+    docker exec -it clab-lab-gnmic /bin/sh
+    ```
+  </Step>
+
+  <Step title="Access Nokia SR OS CLI">
+    ```bash
+    # SR OS devices (BNG, Switch, OLT)
+    docker exec -it clab-lab-bng1 sr_cli
+    
+    # SR Linux devices (TX)
+    docker exec -it clab-lab-tx sr_cli
+    ```
+  </Step>
+</Steps>
+
+### Container Management Commands
+
+```bash
+# View container logs
+docker logs clab-lab-<node-name>
+
+# Follow logs in real-time
+docker logs -f clab-lab-gnmic
+
+# Restart a specific container
+docker restart clab-lab-prometheus
+
+# Check container resource usage
+docker stats clab-lab-bng1
+```
+
+## gRPC and NETCONF Access
+
+### gNMI/gRPC Access
+
+All Nokia devices expose gNMI on port **57400** (mapped to external ports):
+
+<Accordion title="Using gnmic CLI">
+  ```bash
+  # Query BNG1 capabilities
+  gnmic -a localhost:56662 \
+    -u admin -p lab123 \
+    --skip-verify \
+    capabilities
+  
+  # Subscribe to interface statistics
+  gnmic -a localhost:56662 \
+    -u admin -p lab123 \
+    --skip-verify \
+    subscribe \
+    --path "/state/port/statistics"
+  
+  # Get specific configuration
+  gnmic -a localhost:56662 \
+    -u admin -p lab123 \
+    --skip-verify \
+    get \
+    --path "/configure/service"
+  ```
+</Accordion>
+
+<Accordion title="gNMIc Configuration">
+  The lab uses automated discovery via Docker socket:
+  
+  ```yaml
+  # From configs/gnmic/config.yml
+  loader:
+    type: docker
+    address: unix:///run/docker.sock
+    filters:
+      - containers:
+          - label: clab-node-kind=nokia_srsim
+        port: "57400"
+  ```
+  
+  <Note>
+  Credentials are configured globally: `admin/lab123` with `skip-verify: true`
+  </Note>
+</Accordion>
+
+### NETCONF Access
+
+<Accordion title="Using SSH to NETCONF">
+  ```bash
+  # Connect to BNG1 NETCONF interface
+  ssh admin@localhost -p 56663 -s netconf
+  
+  # Using netconf-console (if installed)
+  netconf-console \
+    --host=localhost \
+    --port=56663 \
+    --user=admin \
+    --password=lab123 \
+    --get-config
+  ```
+</Accordion>
+
+## RADIUS Server Access
+
+The RADIUS server handles authentication and accounting for subscriber sessions.
+
+<Accordion title="Access RADIUS Container">
+  ```bash
+  docker exec -it clab-lab-radius /bin/bash
+  ```
+</Accordion>
+
+<Accordion title="RADIUS Configuration Files">
+  - **Clients Config**: `/etc/raddb/clients.conf`
+  - **User Database**: `/etc/raddb/mods-config/files/authorize`
+  - **Main Config**: `/etc/raddb/radiusd.conf`
+  
+  ```bash
+  # View authorized users
+  docker exec clab-lab-radius cat /etc/raddb/mods-config/files/authorize
+  
+  # Check RADIUS logs
+  docker exec clab-lab-radius tail -f /var/log/radius/radius.log
+  ```
+</Accordion>
+
+<Accordion title="Test RADIUS Authentication">
+  ```bash
+  # From within the RADIUS container
+  docker exec -it clab-lab-radius radtest \
+    test@test.com testlab123 \
+    localhost 0 testing123
+  ```
+</Accordion>
+
+## Quick Reference
+
+<Tip>
+**Default Credentials Summary:**
+- Nokia Devices (admin): `admin/lab123`
+- ONT Devices (SSH): `user/test`
+- PPPoE Subscriber: `test@test.com/testlab123`
+- Grafana: `admin/admin`
+- RADIUS Shared Secret: `testing123`
+</Tip>
+
+<Warning>
+All devices are accessible via localhost ports. Ensure no firewall is blocking these ports on your host system.
+</Warning>
+
+## Network Connectivity Test
+
+Verify management network connectivity:
+
+```bash
+# Ping from host to any device
+docker exec clab-lab-bng1 ping -c 3 10.77.1.14
+
+# Verify all devices can reach each other
+docker exec clab-lab-grafana ping -c 3 10.77.1.13  # to Prometheus
+docker exec clab-lab-gnmic ping -c 3 10.77.1.2     # to BNG1
+```

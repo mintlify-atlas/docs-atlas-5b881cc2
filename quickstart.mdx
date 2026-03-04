@@ -1,80 +1,605 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quick Start Guide'
+description: 'Deploy the Nokia BNG Lab in minutes with Containerlab'
 ---
 
-## Get started in three steps
+# Quick Start Guide
 
-Get your documentation site running locally and make your first customization.
+Get the Nokia BNG Lab up and running in your environment with this step-by-step deployment guide.
 
-### Step 1: Set up your local environment
+<Note>
+**Time to Deploy**: Approximately 5-10 minutes depending on your system and whether Docker images need to be pulled.
+</Note>
+
+## Prerequisites
+
+Before deploying the lab, ensure you have the following requirements:
+
+### Required Software
+
+<Steps>
+  <Step title="Containerlab v0.50+">
+    Install Containerlab following the [official documentation](https://containerlab.dev/install/).
+    
+    ```bash
+    # Quick install on Linux
+    bash -c "$(curl -sL https://get.containerlab.dev)"
+    
+    # Verify installation
+    containerlab version
+    ```
+  </Step>
+  
+  <Step title="Docker v24+">
+    Docker Engine is required as the container runtime.
+    
+    ```bash
+    # Verify Docker installation
+    docker --version
+    
+    # Ensure Docker daemon is running
+    sudo systemctl status docker
+    ```
+  </Step>
+  
+  <Step title="Nokia SR-SIM License">
+    <Warning>
+    **Critical**: You must obtain a valid Nokia SR-SIM license file. This lab will NOT work without proper licensing.
+    </Warning>
+    
+    - Contact Nokia to obtain `SR_SIM_license.txt`
+    - The license must support Nokia SR OS 25.10.R2
+    - Supports both SR-7 and IXR-ec platforms
+  </Step>
+  
+  <Step title="Nokia SR OS Image">
+    The lab requires the Nokia SR OS Simulator container image:
+    
+    ```bash
+    # Image required: localhost/nokia/srsim:25.10.R2
+    # Load or build this image per Nokia's instructions
+    ```
+    
+    If you don't have this image, contact Nokia for access to SR OS container images.
+  </Step>
+  
+  <Step title="Custom ONT Image">
+    The lab uses a custom ONT (Optical Network Terminal) image:
+    
+    ```bash
+    # This image will be automatically pulled from GitHub Container Registry
+    docker pull ghcr.io/abelperezr/ont-ds:0.2
+    ```
+  </Step>
+</Steps>
+
+### System Requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| **CPU Cores** | 4 | 8+ |
+| **RAM** | 8 GB | 16 GB |
+| **Disk Space** | 20 GB | 40 GB |
+| **OS** | Linux (Ubuntu 20.04+, RHEL 8+, Debian 11+) | Ubuntu 22.04 LTS |
+
+<Note>
+The lab deploys **12 containers** including 4 Nokia SR OS simulators, which are resource-intensive. Ensure adequate system resources.
+</Note>
+
+## Download the Lab
+
+Choose one of the following methods to download the lab:
+
+<CodeGroup>
+```bash Clone with Git (Recommended)
+git clone https://github.com/abelperezr/nokia-bng-lab.git
+cd nokia-bng-lab
+```
+
+```bash Download ZIP with curl
+curl -L https://github.com/abelperezr/nokia-bng-lab/archive/refs/heads/main.zip -o nokia-bng-lab.zip
+unzip nokia-bng-lab.zip
+cd nokia-bng-lab-main
+```
+
+```bash Download ZIP with wget
+wget https://github.com/abelperezr/nokia-bng-lab/archive/refs/heads/main.zip
+unzip main.zip
+cd nokia-bng-lab-main
+```
+</CodeGroup>
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Prepare License Directory">
+    Create the license directory and add your Nokia SR-SIM license file:
+    
+    ```bash
+    # Create license directory
+    mkdir -p configs/license
+    
+    # Copy your Nokia license file
+    cp /path/to/your/SR_SIM_license.txt configs/license/
+    
+    # Verify the license file exists
+    ls -lh configs/license/SR_SIM_license.txt
+    ```
+    
+    <Warning>
+    The license file MUST be named exactly `SR_SIM_license.txt` and placed in `configs/license/` directory.
+    </Warning>
+  </Step>
+  
+  <Step title="Verify Lab Configuration">
+    Review the lab topology before deployment:
+    
+    ```bash
+    # Inspect the lab topology
+    cat lab.yml
+    
+    # Check configuration files are present
+    ls -lh configs/sros/
+    ls -lh configs/radius/
+    ls -lh configs/gnmic/
+    ```
+  </Step>
+  
+  <Step title="Deploy the Laboratory">
+    Deploy all containers using Containerlab:
+    
+    ```bash
+    # Deploy the lab (requires sudo)
+    sudo containerlab deploy -t lab.yml
+    ```
+    
+    <Accordion title="Deployment Output Example">
+    ```
+    INFO[0000] Containerlab v0.50.0 started
+    INFO[0000] Parsing & checking topology file: lab.yml
+    INFO[0000] Creating lab directory: /home/user/clab-lab
+    INFO[0000] Creating container: "bng1"
+    INFO[0000] Creating container: "bng2"
+    INFO[0000] Creating container: "switch"
+    INFO[0000] Creating container: "olt"
+    INFO[0000] Creating container: "ont1"
+    INFO[0000] Creating container: "ont2"
+    INFO[0000] Creating container: "tx"
+    INFO[0000] Creating container: "radius"
+    INFO[0000] Creating container: "gnmic"
+    INFO[0000] Creating container: "prometheus"
+    INFO[0000] Creating container: "grafana"
+    INFO[0000] Creating container: "iperf"
+    INFO[0000] Creating container: "pc1"
+    INFO[0001] Creating virtual wiring:
+    INFO[0001] bng1:1/1/c1/1 <--> tx:ethernet-1/1
+    INFO[0001] bng2:1/1/c1/1 <--> tx:ethernet-1/2
+    ...
+    INFO[0120] Adding containerlab host entries to /etc/hosts
+    +---+------------------+--------------+---------------+-------+---------+
+    | # |       Name       | Container ID |     Image     | Kind  |  State  |
+    +---+------------------+--------------+---------------+-------+---------+
+    ```
+    </Accordion>
+    
+    <Note>
+    **Deployment Time**: Initial deployment takes 5-10 minutes. Nokia SR OS containers need time to boot and load configurations.
+    </Note>
+  </Step>
+  
+  <Step title="Verify Deployment">
+    Check that all containers are running:
+    
+    ```bash
+    # Inspect the deployed lab
+    sudo containerlab inspect -t lab.yml
+    
+    # Alternative: Check with Docker
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    ```
+    
+    You should see all 13 containers in "Up" state:
+    - bng1, bng2 (BNG routers)
+    - switch, olt (Access network)
+    - tx (Transport)
+    - ont1, ont2 (Subscribers)
+    - radius (Authentication)
+    - gnmic, prometheus, grafana (Telemetry)
+    - iperf, pc1 (Testing)
+  </Step>
+  
+  <Step title="Wait for Nokia Devices to Boot">
+    Nokia SR OS simulators require additional time to fully boot:
+    
+    ```bash
+    # Check BNG1 status (wait for prompt)
+    ssh -p 56661 admin@localhost
+    # Password: lab123
+    
+    # Exit and check BNG2
+    ssh -p 56664 admin@localhost
+    ```
+    
+    <Note>
+    Wait 2-3 minutes after container creation before attempting SSH access. SR OS needs time to load the startup configuration.
+    </Note>
+  </Step>
+</Steps>
+
+## Verify Services
+
+Once deployed, verify that all services are accessible:
+
+### SSH Access to Network Devices
+
+<CodeGroup>
+```bash BNG1 (ISP 1)
+ssh -p 56661 admin@localhost
+# Password: lab123
+
+# Verify configuration
+A:admin@BNG1# show system information
+A:admin@BNG1# show service service-using
+A:admin@BNG1# show subscriber-mgmt subscribers
+```
+
+```bash BNG2 (ISP 2)
+ssh -p 56664 admin@localhost
+# Password: lab123
+
+# Check subscriber sessions
+A:admin@BNG2# show subscriber-mgmt subscribers
+A:admin@BNG2# show router 9998 route-table
+```
+
+```bash Switch
+ssh -p 56667 admin@localhost
+# Password: lab123
+
+# View VLAN configuration
+A:admin@switch# show service service-using
+```
+
+```bash OLT
+ssh -p 56678 admin@localhost
+# Password: lab123
+
+# Check access ports
+A:admin@olt# show port
+A:admin@olt# show service sap-using
+```
+
+```bash TX (SR Linux)
+ssh -p 56676 admin@localhost
+# Password: NokiaSrl1!
+
+# SR Linux CLI
+--{ + running }--[ ]
+A:tx# show interface brief
+A:tx# show network-instance default
+```
+</CodeGroup>
+
+### ONT Subscriber Devices
+
+<CodeGroup>
+```bash ONT1 (IPoE Subscriber)
+ssh -p 56673 user@localhost
+# Password: test
+
+# Check IP address assignment
+ip addr show
+ip route
+ping -c 3 8.8.8.8
+
+# Web interface: http://localhost:8081
+```
+
+```bash ONT2 (PPPoE Subscriber)
+ssh -p 56674 user@localhost
+# Password: test
+
+# Check PPPoE session
+ip addr show ppp0
+ping6 -c 3 2001:4860:4860::8888
+
+# Web interface: http://localhost:8082
+```
+</CodeGroup>
+
+### Telemetry Stack
+
+| Service | URL | Credentials | Purpose |
+|---------|-----|-------------|----------|
+| **Grafana** | http://localhost:3030 | admin / admin | Dashboards and visualization |
+| **Prometheus** | http://localhost:9090 | (none) | Metrics database and queries |
+| **gNMIc** | - | - | Telemetry collector (no web UI) |
+
+<Steps>
+  <Step title="Access Grafana">
+    Open your browser to http://localhost:3030
+    
+    - Username: `admin`
+    - Password: `admin`
+    
+    Navigate to **Dashboards** to view pre-configured BNG monitoring dashboards.
+  </Step>
+  
+  <Step title="Verify Prometheus Targets">
+    Open http://localhost:9090/targets
+    
+    Ensure the `gnmic` target is **UP** and scraping metrics successfully.
+  </Step>
+  
+  <Step title="Check gNMI Subscriptions">
+    View gNMIc logs to confirm telemetry collection:
+    
+    ```bash
+    docker logs clab-lab-gnmic
+    ```
+    
+    You should see active gNMI subscriptions to all Nokia devices.
+  </Step>
+</Steps>
+
+### RADIUS Server
+
+```bash
+# Check RADIUS service
+sudo containerlab exec -t lab.yml --label clab-node-name=radius --cmd "radiusd -X"
+
+# View configured subscribers
+sudo containerlab exec -t lab.yml --label clab-node-name=radius --cmd "cat /etc/raddb/mods-config/files/authorize"
+```
+
+## Service Access Summary
+
+<Note>
+All services are exposed on `localhost` using port mapping. This allows easy access from your host machine without complex networking.
+</Note>
+
+### Complete Port Reference
+
+| Service | Protocol | Port | Credentials | Purpose |
+|---------|----------|------|-------------|----------|
+| **BNG1** | SSH | 56661 | admin / lab123 | BNG1 management |
+| **BNG1** | gNMI | 56662 | admin / lab123 | BNG1 telemetry |
+| **BNG1** | NETCONF | 56663 | admin / lab123 | BNG1 automation |
+| **BNG2** | SSH | 56664 | admin / lab123 | BNG2 management |
+| **BNG2** | gNMI | 56665 | admin / lab123 | BNG2 telemetry |
+| **BNG2** | NETCONF | 56666 | admin / lab123 | BNG2 automation |
+| **Switch** | SSH | 56667 | admin / lab123 | Switch management |
+| **Switch** | gNMI | 56668 | admin / lab123 | Switch telemetry |
+| **OLT** | SSH | 56678 | admin / lab123 | OLT management |
+| **OLT** | gNMI | 56671 | admin / lab123 | OLT telemetry |
+| **ONT1** | SSH | 56673 | user / test | Subscriber 1 access |
+| **ONT1** | HTTP | 8081 | - | ONT1 web interface |
+| **ONT2** | SSH | 56674 | user / test | Subscriber 2 access |
+| **ONT2** | HTTP | 8082 | - | ONT2 web interface |
+| **iPerf** | SSH | 56675 | - | Traffic testing |
+| **TX** | SSH | 56676 | admin / NokiaSrl1! | Transport switch |
+| **PC1** | SSH | 56677 | - | End-user device |
+| **Grafana** | HTTP | 3030 | admin / admin | Monitoring dashboards |
+| **Prometheus** | HTTP | 9090 | - | Metrics queries |
+
+### Management Network
+
+All containers are connected to the management network:
+
+```yaml
+Network: lab
+Subnet: 10.77.1.0/24
+
+Device IP Addresses:
+- BNG1:       10.77.1.2
+- BNG2:       10.77.1.3
+- Switch:     10.77.1.4
+- OLT:        10.77.1.5
+- ONT1:       10.77.1.6
+- ONT2:       10.77.1.7
+- RADIUS:     10.77.1.10
+- gNMIc:      10.77.1.12
+- Prometheus: 10.77.1.13
+- Grafana:    10.77.1.14
+- iPerf:      10.77.1.15
+- TX:         10.77.1.16
+- PC1:        10.77.1.17
+```
+
+## Health Checks
+
+Perform these checks to ensure the lab is fully operational:
+
+<Accordion title="Check Subscriber Sessions">
+```bash
+# SSH to BNG1
+ssh -p 56661 admin@localhost
+
+# View active subscribers
+A:admin@BNG1# show subscriber-mgmt subscribers
+
+# Expected: You should see active IPoE and/or PPPoE sessions
+# If no subscribers, check RADIUS connectivity and ONT status
+```
+</Accordion>
+
+<Accordion title="Verify RADIUS Authentication">
+```bash
+# From ONT1, trigger IPoE authentication
+ssh -p 56673 user@localhost
+sudo dhclient -r eth1.150  # Release
+sudo dhclient eth1.150     # Renew
+
+# Check RADIUS logs
+docker logs clab-lab-radius | tail -20
+```
+</Accordion>
+
+<Accordion title="Test Connectivity">
+```bash
+# From ONT1 (IPoE subscriber)
+ssh -p 56673 user@localhost
+
+# Test IPv4 connectivity
+ping -c 3 8.8.8.8
+
+# Test IPv6 connectivity  
+ping6 -c 3 2001:4860:4860::8888
+
+# Traceroute to verify path through BNG
+traceroute 8.8.8.8
+```
+</Accordion>
+
+<Accordion title="Validate Telemetry Pipeline">
+```bash
+# Check gNMIc is collecting metrics
+docker logs clab-lab-gnmic | grep -i "subscription"
+
+# Query Prometheus for metrics
+curl -s 'http://localhost:9090/api/v1/query?query=up' | jq .
+
+# Should show gnmic target with value 1 (UP)
+```
+</Accordion>
+
+## Common Operations
+
+### Stop the Lab
+
+```bash
+# Gracefully destroy all containers
+sudo containerlab destroy -t lab.yml
+
+# Confirm all containers are removed
+docker ps -a | grep clab-lab
+```
+
+<Warning>
+**Data Loss**: Destroying the lab removes all runtime state. Configuration files are preserved, but any runtime data (logs, sessions, metrics) will be lost.
+</Warning>
+
+### Restart the Lab
+
+```bash
+# Destroy existing deployment
+sudo containerlab destroy -t lab.yml
+
+# Re-deploy from scratch
+sudo containerlab deploy -t lab.yml
+```
+
+### Save Runtime Configuration
+
+```bash
+# SSH to a Nokia device and save config
+ssh -p 56661 admin@localhost
+A:admin@BNG1# admin save
+
+# Backup configuration to external file
+A:admin@BNG1# admin save cf3:\backup-config.cfg
+```
+
+### View Container Logs
+
+```bash
+# View logs for specific container
+docker logs clab-lab-bng1
+docker logs clab-lab-radius
+docker logs clab-lab-gnmic
+
+# Follow logs in real-time
+docker logs -f clab-lab-grafana
+```
+
+### Execute Commands in Containers
+
+```bash
+# Execute command using Containerlab
+sudo containerlab exec -t lab.yml --label clab-node-name=bng1 --cmd "show system information"
+
+# Execute command using Docker
+docker exec -it clab-lab-ont1 ip addr show
+```
+
+## Troubleshooting
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Containers fail to start">
+    **Symptoms**: Some containers show "Exited" status
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    **Solutions**:
+    1. Check Docker resources: `docker system df`
+    2. Verify license file exists: `ls -lh configs/license/SR_SIM_license.txt`
+    3. Review container logs: `docker logs clab-lab-<container-name>`
+    4. Ensure all images are pulled: `docker images | grep nokia`
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+  
+  <Accordion title="Cannot SSH to Nokia devices">
+    **Symptoms**: Connection refused or timeout when SSHing to BNG/Switch/OLT
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    **Solutions**:
+    1. Wait 2-3 minutes for SR OS to fully boot
+    2. Check container is running: `docker ps | grep bng1`
+    3. Verify port mapping: `docker port clab-lab-bng1`
+    4. Test connection: `nc -zv localhost 56661`
+  </Accordion>
+  
+  <Accordion title="No subscriber sessions appear">
+    **Symptoms**: `show subscriber-mgmt subscribers` returns empty
+    
+    **Solutions**:
+    1. Verify RADIUS server is running: `docker ps | grep radius`
+    2. Check ONT connection type environment variables
+    3. Trigger DHCP on ONT: `ssh -p 56673 user@localhost "sudo dhclient eth1.150"`
+    4. Review RADIUS logs: `docker logs clab-lab-radius`
+    5. Check BNG RADIUS policy: `show subscriber-mgmt authentication-policy`
+  </Accordion>
+  
+  <Accordion title="Grafana shows no data">
+    **Symptoms**: Dashboards are empty or show "No Data"
+    
+    **Solutions**:
+    1. Verify Prometheus is scraping: http://localhost:9090/targets
+    2. Check gNMIc logs: `docker logs clab-lab-gnmic`
+    3. Ensure gNMI is enabled on devices: `show system grpc`
+    4. Verify network connectivity: `docker exec clab-lab-gnmic ping 10.77.1.2`
+  </Accordion>
+  
+  <Accordion title="License errors in logs">
+    **Symptoms**: Container logs show license validation errors
+    
+    **Solutions**:
+    1. Verify license file format (must be text, not PDF)
+    2. Check license expiration date
+    3. Ensure license supports SR OS 25.10.R2
+    4. Confirm license path in lab.yml matches actual file location
+    5. Contact Nokia for valid license
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Next Steps
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Now that your lab is deployed and operational:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Explore Configuration" icon="code" href="/configuration/bng-devices">
+    Deep dive into BNG configuration and subscriber policies
+  </Card>
+  
+  <Card title="Monitor Telemetry" icon="chart-line" href="/telemetry/overview">
+    Learn how to use Grafana dashboards and create custom metrics
+  </Card>
+  
+  <Card title="Architecture Overview" icon="diagram-project" href="/architecture/overview">
+    Understand the network topology and design
+  </Card>
+  
+  <Card title="Operations Guide" icon="wrench" href="/operations/access-services">
+    Access services and troubleshoot issues
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+For detailed configuration examples, subscriber management workflows, and advanced scenarios, continue to the Configuration Guide.
 </Note>

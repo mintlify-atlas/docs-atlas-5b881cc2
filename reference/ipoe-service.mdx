@@ -1,0 +1,417 @@
+---
+title: IPoE Service Reference
+description: Complete IPoE (DHCP) service configuration reference including subscriber management, DHCP proxy, and IPv6 support
+---
+
+# IPoE Service Reference
+
+Complete reference for IPoE (IP over Ethernet) subscriber services in the Nokia BNG Lab.
+
+## Overview
+
+IPoE is a method for providing IP connectivity to subscribers using DHCP for address assignment. Unlike PPPoE, IPoE doesn't require PPP session establishment, making it simpler and more efficient.
+
+### Key Features
+
+- **DHCPv4 Proxy**: BNG acts as DHCP proxy server
+- **DHCPv6 Relay**: Supports IPv6 address assignment and prefix delegation
+- **Dual-Stack**: Simultaneous IPv4 and IPv6 support
+- **Carrier-Grade NAT**: IPv4 addresses from CGN pool
+- **Prefix Delegation**: IPv6 /56 or /64 prefixes for CPE
+
+## IPoE Session Policy
+
+### Basic Configuration
+
+```sros
+/configure subscriber-mgmt ipoe-session-policy "ipoe"
+```
+
+The IPoE session policy is minimal and relies on other policies for detailed configuration.
+
+<Accordion title="Related Policies">
+
+### Subscriber Profile
+
+```sros
+/configure subscriber-mgmt sub-profile "subprofile"
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting policy ["accounting"]
+/configure subscriber-mgmt sub-profile "subprofile" radius-accounting session-optimized-stop true
+```
+
+### SLA Profile
+
+```sros
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress policy-name "10"
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate pir 100000
+/configure subscriber-mgmt sla-profile "100M" egress qos sap-egress overrides queue 1 rate cir 100000
+/configure subscriber-mgmt sla-profile "100M" host-limits overall 10
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv4 dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 pd-ipoe-dhcp 1
+/configure subscriber-mgmt sla-profile "100M" host-limits ipv6 wan-ipoe-dhcp 1
+```
+
+### MSAP Policy
+
+```sros
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt subscriber-limit 131071
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt sub-ident-policy "subident"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sla-profile "100M"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults sub-profile "subprofile"
+/configure subscriber-mgmt msap-policy "msap" sub-sla-mgmt defaults subscriber-id auto-id
+```
+
+</Accordion>
+
+## DHCP Configuration
+
+### DHCPv4 Server Pool
+
+<Accordion title="IPv4 DHCP Server Configuration">
+
+```sros
+# DHCP Server Instance
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-gi-address
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool-selection use-pool-from-client
+
+# Pool Configuration
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat"
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" minimum-free percent 3
+
+# DNS Servers
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option dns-server ipv4-address [8.8.8.8 8.8.4.4]
+
+# Lease Time (10 years)
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" options option lease-time duration 315446399
+
+# Subnet Configuration - BNG1
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 options option default-router ipv4-address [100.80.0.1]
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 address-range 100.80.0.2 end 100.80.0.7
+/configure service vprn "9998" dhcp-server dhcpv4 "suscriptores" pool "cgnat" subnet 100.80.0.0/29 exclude-addresses 100.80.0.1 end 100.80.0.1
+
+# Loopback Interface (Server Address)
+/configure service vprn "9998" interface "loopback" admin-state enable
+/configure service vprn "9998" interface "loopback" loopback true
+/configure service vprn "9998" interface "loopback" ipv4 local-dhcp-server "suscriptores"
+/configure service vprn "9998" interface "loopback" ipv4 primary address 9.9.9.9 prefix-length 32
+```
+
+**Key Parameters**:
+- **Server IP**: 9.9.9.9
+- **Pool**: 100.80.0.2 - 100.80.0.7 (6 addresses)
+- **Gateway**: 100.80.0.1
+- **DNS**: 8.8.8.8, 8.8.4.4
+- **Lease Time**: 315,446,399 seconds (~10 years)
+
+</Accordion>
+
+### DHCPv6 Server Configuration
+
+<Accordion title="IPv6 DHCP Server Configuration">
+
+```sros
+# DHCPv6 Server Instance
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" admin-state enable
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-pool-from-client
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool-selection use-link-address scope subnet
+
+# Pool Configuration
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix minimum 56
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" delegated-prefix maximum 64
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" options option dns-server ipv6-address [2001:4860:4860::8888 2001:4860:4860::8844]
+
+# WAN Host Prefix (IA_NA - ONT WAN interface)
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 renew-time 21600
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 rebind-time 36000
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type wan-host true
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:100::/56 prefix-type pd false
+
+# Prefix Delegation (IA_PD - for CPE LAN)
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 preferred-lifetime 43200
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 valid-lifetime 86400
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 renew-time 21600
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 rebind-time 36000
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type wan-host false
+/configure service vprn "9998" dhcp-server dhcpv6 "suscriptores_v6" pool "IPv6" prefix 2001:db8:200::/48 prefix-type pd true
+
+# Loopback Interface
+/configure service vprn "9998" interface "loopback" ipv6 local-dhcp-server "suscriptores_v6"
+/configure service vprn "9998" interface "loopback" ipv6 address fd07:47::aaaa prefix-length 128
+```
+
+**Key Parameters**:
+- **Server IPv6**: fd07:47::aaaa
+- **WAN Prefix**: 2001:db8:100::/56
+- **PD Prefix**: 2001:db8:200::/48
+- **DNS**: 2001:4860:4860::8888, 2001:4860:4860::8844
+- **PD Size**: /56 to /64
+
+</Accordion>
+
+## Group Interface Configuration
+
+<Accordion title="IPv4 DHCP Proxy">
+
+```sros
+# IPv4 DHCP Proxy Configuration
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp server [9.9.9.9]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp trusted true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp gi-address 100.80.0.1
+
+# DHCP Proxy Server
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp proxy-server emulated-server 100.80.0.1
+
+# Lease Population
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp lease-populate max-leases 131071
+
+# Client Applications
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 dhcp client-applications ppp true
+
+# Anti-spoofing
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 urpf-check mode strict-no-ecmp
+
+# Neighbor Discovery
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv4 neighbor-discovery populate true
+```
+
+**How it works**:
+1. Subscriber sends DHCP Discover
+2. BNG intercepts as proxy
+3. BNG relays to local DHCP server (9.9.9.9)
+4. Server assigns IP from CGN pool
+5. BNG creates subscriber session
+6. BNG applies QoS and accounting
+
+</Accordion>
+
+<Accordion title="IPv6 DHCPv6 Relay and Router Advertisement">
+
+```sros
+# DHCPv6 Relay Configuration
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 pd-managed-route
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay link-address 2001:db8:100::
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay server ["fd07:47::aaaa"]
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications dhcp true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 relay client-applications ppp true
+
+# DHCPv6 Proxy
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 dhcp6 proxy-server admin-state enable
+
+# Router Advertisements
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options other-stateful-configuration true
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements prefix-options autonomous false
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 router-advertisements options managed-configuration true
+
+# Anti-spoofing
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipv6 urpf-check mode strict-no-ecmp
+```
+
+**Router Advertisement Settings**:
+- **Managed Config Flag (M)**: Set to `true` (use DHCPv6 for addresses)
+- **Other Config Flag (O)**: Set to `true` (use DHCPv6 for other info)
+- **Autonomous Flag (A)**: Set to `false` (don't use SLAAC)
+
+</Accordion>
+
+## IPoE Session Configuration
+
+```sros
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session admin-state enable
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session ipoe-session-policy "ipoe"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session user-db "clientes"
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session session-limit 131071
+/configure service vprn "9998" subscriber-interface "services" group-interface "gi" ipoe-session sap-session-limit 131071
+```
+
+**Session Parameters**:
+- **Session Policy**: "ipoe"
+- **User DB**: "clientes" (fallback local database)
+- **Max Sessions**: 131,071 per group interface
+- **SAP Session Limit**: 131,071 per SAP
+
+## IPoE Session Establishment Flow
+
+### IPv4 Session Setup
+
+```
+ONT/CPE              BNG                    RADIUS              DHCP Server
+   │                   │                        │                      │
+   │ DHCP Discover     │                        │                      │
+   │─────────────────▶ │                        │                      │
+   │                   │ Access-Request         │                      │
+   │                   │──────────────────────▶ │                      │
+   │                   │ Access-Accept          │                      │
+   │                   │◀────────────────────── │                      │
+   │                   │ (SLA, Sub profiles)    │                      │
+   │                   │                        │                      │
+   │                   │ DHCP Discover (relay)                         │
+   │                   │─────────────────────────────────────────▶│
+   │                   │ DHCP Offer                                    │
+   │                   │◀─────────────────────────────────────────│
+   │ DHCP Offer        │                        │                      │
+   │◀────────────────── │                        │                      │
+   │                   │                        │                      │
+   │ DHCP Request      │                        │                      │
+   │─────────────────▶ │                        │                      │
+   │                   │ DHCP Request (relay)                          │
+   │                   │─────────────────────────────────────────▶│
+   │                   │ DHCP Ack                                      │
+   │                   │◀─────────────────────────────────────────│
+   │ DHCP Ack          │                        │                      │
+   │◀────────────────── │                        │                      │
+   │                   │                        │                      │
+   │                   │ Acct-Start             │                      │
+   │                   │──────────────────────▶ │                      │
+   │                   │                        │                      │
+   │ Session Active    │                        │                      │
+   │                   │                        │                      │
+```
+
+### IPv6 Session Setup (with Prefix Delegation)
+
+```
+ONT/CPE              BNG                    DHCPv6 Server
+   │                   │                           │
+   │ Router Solicit    │                           │
+   │─────────────────▶ │                           │
+   │ Router Advert     │                           │
+   │◀───────────────── │ (M=1, O=1, A=0)       │
+   │                   │                           │
+   │ DHCPv6 Solicit    │                           │
+   │ (IA_NA + IA_PD)   │                           │
+   │─────────────────▶ │                           │
+   │                   │ DHCPv6 Relay-Forward      │
+   │                   │─────────────────────────▶│
+   │                   │ DHCPv6 Relay-Reply        │
+   │                   │◀─────────────────────────│
+   │ DHCPv6 Advertise  │                           │
+   │◀───────────────── │                           │
+   │                   │                           │
+   │ DHCPv6 Request    │                           │
+   │─────────────────▶ │ DHCPv6 Relay-Forward      │
+   │                   │─────────────────────────▶│
+   │                   │ DHCPv6 Relay-Reply        │
+   │                   │◀─────────────────────────│
+   │ DHCPv6 Reply      │                           │
+   │ (WAN addr + PD)   │                           │
+   │◀───────────────── │                           │
+   │                   │                           │
+```
+
+## Subscriber Session Example
+
+### Session Details
+
+```
+Subscriber Session:
+  Session ID: 12345
+  Type: IPoE
+  MAC Address: 00:11:22:33:44:55
+  Circuit ID: 1/1/c1/1:50.150
+  
+  IPv4:
+    Address: 100.80.0.2/29
+    Gateway: 100.80.0.1
+    NAT Outside: 99.99.99.99:1024-1087
+  
+  IPv6:
+    WAN Address: 2001:db8:100::1/128
+    Delegated Prefix: 2001:db8:200:1::/56
+  
+  QoS:
+    Ingress: 100 Mbps (PIR/CIR)
+    Egress: 100 Mbps (PIR/CIR)
+  
+  Accounting:
+    Input Octets: 1234567890
+    Output Octets: 9876543210
+    Session Time: 3600 seconds
+```
+
+## Verification Commands
+
+```bash
+# Show IPoE sessions
+show service active-subscribers type ipoe
+
+# Show specific subscriber
+show service active-subscribers subscriber-id "100.80.0.2" detail
+
+# Show DHCP leases (IPv4)
+show service id 9998 dhcp lease-state
+
+# Show DHCPv6 leases
+show service id 9998 dhcp6 lease-state
+
+# Show subscriber hierarchy
+show service active-subscribers hierarchy
+
+# Show DHCP statistics
+show service id 9998 dhcp statistics
+show service id 9998 dhcp6 statistics
+
+# Show group interface stats
+show service id 9998 subscriber-interface "services" group-interface "gi" statistics
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="No DHCP offer received">
+
+**Check**:
+1. DHCP proxy enabled: `show service id 9998 subscriber-interface "services" group-interface "gi"`
+2. DHCP server reachable: `ping router-instance "9998" 9.9.9.9`
+3. Pool availability: `show service id 9998 dhcp statistics`
+
+**Debug**:
+```bash
+debug service id 9998 dhcp packet
+```
+
+</Accordion>
+
+<Accordion title="IPv6 not working">
+
+**Verify**:
+1. Router advertisements: `show service id 9998 subscriber-interface "services" group-interface "gi" router-advertisement`
+2. DHCPv6 relay: `show service id 9998 subscriber-interface "services" group-interface "gi" dhcp6`
+3. Prefix delegation: `show service id 9998 dhcp6 lease-state`
+
+**Check flags**:
+- M flag (managed): Should be 1
+- O flag (other-config): Should be 1
+- A flag (autonomous): Should be 0
+
+</Accordion>
+
+<Accordion title="Subscriber not authenticated">
+
+**Check**:
+1. RADIUS connectivity: `show aaa radius server-policy "radius_policy"`
+2. Authentication policy: `show subscriber-mgmt radius-authentication-policy "autpolicy"`
+3. Local user database: `show subscriber-mgmt local-user-db "clientes"`
+
+**Debug**:
+```bash
+debug radius
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+- [PPPoE Service](/reference/pppoe-service)
+- [NAT Configuration](/reference/nat-configuration)
+- [BNG1 Configuration](/reference/bng1-config)
+- [BNG2 Configuration](/reference/bng2-config)

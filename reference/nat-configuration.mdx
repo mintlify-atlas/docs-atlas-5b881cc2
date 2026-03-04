@@ -1,0 +1,504 @@
+---
+title: NAT Configuration Reference
+description: Complete Carrier-Grade NAT (CGN) configuration reference including deterministic NAT, ISA configuration, and port allocation
+---
+
+# NAT Configuration Reference
+
+Complete reference for Carrier-Grade NAT44 (CGN) configuration in the Nokia BNG Lab.
+
+## Overview
+
+The lab implements **Deterministic Large-Scale NAT44** to provide IPv4 connectivity to subscribers using private address space. This allows multiple subscribers to share a single public IPv4 address while maintaining traceability.
+
+### Key Features
+
+- **Deterministic Port Allocation**: Predictable port ranges per subscriber
+- **Large-Scale NAT**: Support for thousands of subscribers
+- **ISA-Based**: Hardware-accelerated NAT using ISA cards
+- **Application Layer Gateways (ALGs)**: Support for PPTP, RTSP, SIP
+- **Logging and Traceability**: RADIUS accounting with port range info
+
+## Architecture Overview
+
+```
+              ┌──────────────────────────────────────┐
+              │        Subscriber (Private IP)           │
+              │    100.80.0.2 - 100.80.0.7            │
+              └──────────────────┬──────────────────┘
+                                 │
+                                 │
+              ┌──────────────────▼──────────────────┐
+              │      VPRN 9998 (NAT Inside)          │
+              │    Subscriber Interface               │
+              │    IP Filter: Trigger NAT             │
+              └──────────────────┬──────────────────┘
+                                 │
+                                 │ NAT Policy
+                                 │
+              ┌──────────────────▼──────────────────┐
+              │         ISA Card 2/1                  │
+              │      NAT Group 1                      │
+              │      Hardware NAT Processing          │
+              └──────────────────┬──────────────────┘
+                                 │
+                                 │
+              ┌──────────────────▼──────────────────┐
+              │      VPRN 9999 (NAT Outside)         │
+              │      NAT Pool: 99.99.99.99           │
+              │      Interface to Internet            │
+              └──────────────────┬──────────────────┘
+                                 │
+                                 │
+              ┌──────────────────▼──────────────────┐
+              │         Internet                      │
+              │   (iPerf Server / External)         │
+              └──────────────────────────────────────┘
+```
+
+## ISA Configuration
+
+### ISA Card and NAT Group
+
+<Accordion title="ISA Hardware Configuration">
+
+```sros
+# Configure ISA Card
+/configure card 2 card-type iom4-e-b
+/configure card 2 mda 1 mda-type isa2-bb
+
+# Configure NAT Group
+/configure isa nat-group 1 admin-state enable
+/configure isa nat-group 1 redundancy active-mda-limit 1
+/configure isa nat-group 1 session-limits watermarks low 80
+/configure isa nat-group 1 session-limits watermarks high 90
+/configure isa nat-group 1 mda 2/1
+```
+
+**Key Parameters**:
+- **NAT Group**: 1
+- **MDA**: 2/1 (ISA card in slot 2, MDA 1)
+- **Active MDA Limit**: 1 (single active ISA)
+- **Session Watermarks**: 
+  - Low: 80% (warning threshold)
+  - High: 90% (critical threshold)
+
+</Accordion>
+
+## NAT Filter Configuration
+
+### IP Filter for NAT Trigger
+
+```sros
+/configure filter ip-filter "10" default-action accept
+
+# Entry 1: Allow traffic to/from CGN pool (bypass NAT)
+/configure filter ip-filter "10" entry 1 match dst-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 1 match dst-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 1 action accept
+
+# Entry 2: Trigger NAT for traffic FROM CGN pool
+/configure filter ip-filter "10" entry 2 match src-ip address 100.80.0.0
+/configure filter ip-filter "10" entry 2 match src-ip mask 255.255.255.248
+/configure filter ip-filter "10" entry 2 action nat
+```
+
+**Filter Logic**:
+1. **Entry 1**: Destination is CGN pool → Accept (no NAT)
+2. **Entry 2**: Source is CGN pool → Apply NAT
+3. **Default**: Accept (for other traffic)
+
+**Applied to SLA Profile**:
+```sros
+/configure subscriber-mgmt sla-profile "100M" ingress ip-filter "10"
+```
+
+## NAT Outside Configuration (VPRN 9999)
+
+<Accordion title="NAT Outside Pool and Interface">
+
+### BNG1 Configuration
+
+```sros
+/configure service vprn "9999" admin-state enable
+/configure service vprn "9999" customer "1"
+/configure service vprn "9999" autonomous-system 65520
+
+# NAT Outside Pool
+/configure service vprn "9999" nat outside
+/configure service vprn "9999" nat outside pool "dtpool" admin-state enable
+/configure service vprn "9999" nat outside pool "dtpool" type large-scale
+/configure service vprn "9999" nat outside pool "dtpool" nat-group 1
+/configure service vprn "9999" nat outside pool "dtpool" mode napt
+/configure service vprn "9999" nat outside pool "dtpool" large-scale subscriber-limit 8
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic
+/configure service vprn "9999" nat outside pool "dtpool" large-scale deterministic port-reservation 64
+/configure service vprn "9999" nat outside pool "dtpool" address-range 99.99.99.99 end 99.99.99.99
+
+# Interface to Internet
+/configure service vprn "9999" interface "to_iperf" admin-state enable
+/configure service vprn "9999" interface "to_iperf" ipv4 primary address 172.19.1.2
+/configure service vprn "9999" interface "to_iperf" ipv4 primary prefix-length 30
+/configure service vprn "9999" interface "to_iperf" sap 1/1/c2/1:0 admin-state enable
+```
+
+**Pool Parameters**:
+- **Type**: large-scale (CGN)
+- **Mode**: NAPT (NAT with Port Address Translation)
+- **NAT Group**: 1 (uses ISA 2/1)
+- **Subscriber Limit**: 8 subscribers
+- **Deterministic**: Enabled (predictable port allocation)
+- **Port Reservation**: 64 ports per subscriber
+- **Public IP**: 99.99.99.99
+
+### BNG2 Configuration
+
+```sros
+# Same as BNG1, but different pool:
+/configure service vprn "9999" nat outside pool "dtpool" address-range 100.100.100.100 end 100.100.100.100
+
+# Different interface to Internet:
+/configure service vprn "9999" interface "to_iperf" ipv4 primary address 172.20.1.2
+```
+
+</Accordion>
+
+## NAT Policy Configuration
+
+```sros
+/configure service nat nat-policy "natpol"
+
+# Link to NAT Pool
+/configure service nat nat-policy "natpol" pool router-instance "9999"
+/configure service nat nat-policy "natpol" pool name "dtpool"
+
+# Application Layer Gateways (ALGs)
+/configure service nat nat-policy "natpol" alg pptp true
+/configure service nat nat-policy "natpol" alg rtsp true
+/configure service nat nat-policy "natpol" alg sip true
+```
+
+**Supported ALGs**:
+- **PPTP**: VPN pass-through
+- **RTSP**: Video streaming
+- **SIP**: VoIP signaling
+
+## NAT Inside Configuration (VPRN 9998)
+
+<Accordion title="NAT Inside and Prefix Mapping">
+
+### BNG1 Configuration
+
+```sros
+/configure service vprn "9998" admin-state enable
+/configure service vprn "9998" customer "1"
+/configure service vprn "9998" management allow-ftp true
+/configure service vprn "9998" management allow-ssh true
+/configure service vprn "9998" management allow-netconf true
+/configure service vprn "9998" management allow-grpc true
+
+# NAT Inside Configuration
+/configure service vprn "9998" nat inside
+/configure service vprn "9998" nat inside large-scale nat44 max-subscriber-limit 8
+/configure service vprn "9998" nat inside large-scale nat44 deterministic
+
+# Prefix Map
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol"
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" admin-state enable
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.80.0.0/29 nat-policy "natpol" map 100.80.0.0 to 100.80.0.7 first-outside-address 99.99.99.99
+```
+
+**Prefix Map Parameters**:
+- **Inside Prefix**: 100.80.0.0/29 (8 addresses)
+- **Usable IPs**: 100.80.0.0 - 100.80.0.7 (gateway .1 excluded in DHCP)
+- **Outside Address**: 99.99.99.99
+- **Max Subscribers**: 8
+
+### BNG2 Configuration
+
+```sros
+# Same structure, different subnets:
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" admin-state enable
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" map 100.90.0.0 to 100.90.0.7
+/configure service vprn "9998" nat inside large-scale nat44 deterministic prefix-map 100.90.0.0/29 nat-policy "natpol" map 100.90.0.0 to 100.90.0.7 first-outside-address 100.100.100.100
+```
+
+</Accordion>
+
+## Deterministic Port Allocation
+
+### Port Range Calculation
+
+**Formula**:
+```
+Ports per subscriber = (65536 - 1024) / max_subscribers
+Ports per subscriber = 64512 / 8 = 8064 ports
+
+With port-reservation = 64:
+Usable ports = floor(8064 / 64) * 64 = 8000 ports
+Port blocks = 8000 / 64 = 125 blocks
+```
+
+### Port Mapping Table (BNG1)
+
+| Inside IP | Outside IP | Port Range | Block Size |
+|-----------|------------|------------|------------|
+| 100.80.0.0 | 99.99.99.99 | 1024-9023 | 8000 ports |
+| 100.80.0.1 | 99.99.99.99 | 9024-17023 | 8000 ports |
+| 100.80.0.2 | 99.99.99.99 | 17024-25023 | 8000 ports |
+| 100.80.0.3 | 99.99.99.99 | 25024-33023 | 8000 ports |
+| 100.80.0.4 | 99.99.99.99 | 33024-41023 | 8000 ports |
+| 100.80.0.5 | 99.99.99.99 | 41024-49023 | 8000 ports |
+| 100.80.0.6 | 99.99.99.99 | 49024-57023 | 8000 ports |
+| 100.80.0.7 | 99.99.99.99 | 57024-65023 | 8000 ports |
+
+**Note**: Port 0-1023 are reserved (well-known ports)
+
+### Port Reservation Benefits
+
+**Port Reservation = 64 ports**:
+- Reduces logging overhead
+- Simplifies traceability
+- Allocates ports in blocks of 64
+- Easier to identify subscriber from port
+
+**Example**:
+```
+External packet: 99.99.99.99:17088 → 8.8.8.8:80
+Port 17088 is in range 17024-25023
+→ Inside IP: 100.80.0.2
+```
+
+## NAT Traffic Flow
+
+### Outbound Traffic (Inside → Outside)
+
+```
+Subscriber          NAT Inside          ISA Card           NAT Outside        Internet
+(100.80.0.2)       (VPRN 9998)          (2/1)             (VPRN 9999)       (8.8.8.8)
+     │                  │                   │                    │                 │
+     │ TCP SYN          │                   │                    │                 │
+     │ 100.80.0.2:5000  │                   │                    │                 │
+     │ → 8.8.8.8:80       │                   │                    │                 │
+     │────────────────▶ │                   │                    │                 │
+     │                  │ IP Filter "10"    │                    │                 │
+     │                  │ Entry 2: NAT      │                    │                 │
+     │                  │─────────────────▶ │                    │                 │
+     │                  │                   │ NAT Translation    │                 │
+     │                  │                   │ 5000 → 17088       │                 │
+     │                  │                   │──────────────────▶ │                 │
+     │                  │                   │                    │ TCP SYN         │
+     │                  │                   │                    │ 99.99.99.99:    │
+     │                  │                   │                    │ 17088 → 8.8.8.8 │
+     │                  │                   │                    │ :80             │
+     │                  │                   │                    │───────────────▶│
+     │                  │                   │                    │                 │
+```
+
+**Steps**:
+1. Subscriber sends packet with private IP
+2. Packet hits IP filter entry 2 (src = CGN pool)
+3. Filter action triggers NAT
+4. ISA card performs NAT lookup/translation
+5. Source IP changed to 99.99.99.99
+6. Source port mapped to deterministic range
+7. Packet forwarded to Internet via VPRN 9999
+
+### Inbound Traffic (Outside → Inside)
+
+```
+Internet          NAT Outside          ISA Card           NAT Inside        Subscriber
+(8.8.8.8)        (VPRN 9999)           (2/1)             (VPRN 9998)       (100.80.0.2)
+    │                 │                    │                   │                  │
+    │ TCP SYN-ACK     │                    │                   │                  │
+    │ 8.8.8.8:80 →    │                    │                   │                  │
+    │ 99.99.99.99:    │                    │                   │                  │
+    │ 17088           │                    │                   │                  │
+    │──────────────▶ │                    │                   │                  │
+    │                 │─────────────────▶ │                   │                  │
+    │                 │                    │ Reverse NAT        │                  │
+    │                 │                    │ 17088 → 5000      │                  │
+    │                 │                    │ 99.99.99.99 →     │                  │
+    │                 │                    │ 100.80.0.2         │                  │
+    │                 │                    │────────────────▶ │                  │
+    │                 │                    │                   │ TCP SYN-ACK     │
+    │                 │                    │                   │ 8.8.8.8:80 →    │
+    │                 │                    │                   │ 100.80.0.2:5000 │
+    │                 │                    │                   │────────────────▶ │
+    │                 │                    │                   │                  │
+```
+
+## RADIUS Accounting for NAT
+
+### NAT-Specific Attributes
+
+```sros
+/configure subscriber-mgmt radius-accounting-policy "accounting" include-radius-attribute nat-port-range true
+```
+
+**Accounting-Start Message**:
+```
+Acct-Status-Type = Start
+User-Name = "user@domain.com"
+Framed-IP-Address = 100.80.0.2
+Alc-Nat-Port-Range = "99.99.99.99:17024-25023"
+Acct-Session-Id = "00012345"
+Acct-Session-Time = 0
+```
+
+**Accounting-Stop Message**:
+```
+Acct-Status-Type = Stop
+User-Name = "user@domain.com"
+Framed-IP-Address = 100.80.0.2
+Alc-Nat-Port-Range = "99.99.99.99:17024-25023"
+Acct-Session-Id = "00012345"
+Acct-Session-Time = 3600
+Acct-Input-Octets = 1234567890
+Acct-Output-Octets = 9876543210
+```
+
+## Verification Commands
+
+```bash
+# Show NAT pool status
+show service nat nat-policy "natpol" statistics
+
+# Show ISA NAT group
+show isa nat-group 1
+show isa nat-group 1 statistics
+
+# Show NAT subscribers
+show service nat isa nat-group 1 subscribers
+
+# Show specific subscriber NAT
+show service nat isa nat-group 1 subscriber 100.80.0.2
+
+# Show NAT sessions
+show service nat isa nat-group 1 nat-sessions
+
+# Show port block allocation
+show service nat isa nat-group 1 port-block-allocation
+
+# Show NAT pool utilization
+show service nat outside pool "dtpool"
+
+# Show deterministic mapping
+show service nat inside prefix-map 100.80.0.0/29
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="NAT not working / No outbound connectivity">
+
+**Check**:
+1. ISA NAT group operational
+2. NAT filter applied to SLA profile
+3. NAT policy linked to pool
+4. Prefix map enabled
+
+**Verify**:
+```bash
+show isa nat-group 1
+show subscriber-mgmt sla-profile "100M" ingress
+show service nat nat-policy "natpol"
+show service nat inside prefix-map
+```
+
+**Debug**:
+```bash
+debug service nat
+```
+
+</Accordion>
+
+<Accordion title="Port exhaustion">
+
+**Symptoms**: New connections fail, existing work
+
+**Check port usage**:
+```bash
+show service nat isa nat-group 1 statistics
+show service nat isa nat-group 1 subscriber 100.80.0.2 detail
+```
+
+**Solutions**:
+1. Increase port-reservation (more ports per sub)
+2. Add more public IPs to pool
+3. Implement port limits per subscriber
+4. Enable port timeout/reuse
+
+</Accordion>
+
+<Accordion title="Deterministic mapping not working">
+
+**Verify configuration**:
+```bash
+show service nat inside prefix-map 100.80.0.0/29 detail
+```
+
+**Check**:
+- Admin state enabled
+- Port-reservation configured
+- Subscriber limit matches pool
+- First-outside-address configured
+
+</Accordion>
+
+<Accordion title="ALG not working (VoIP/VPN fails)">
+
+**Check ALG config**:
+```bash
+show service nat nat-policy "natpol"
+```
+
+**Verify ALGs enabled**:
+- PPTP for VPN
+- SIP for VoIP
+- RTSP for video
+
+**Debug**:
+```bash
+debug service nat alg
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+### ISA Session Limits
+
+```sros
+# Monitor ISA load
+show isa mda 2/1 detail
+
+# Check session watermarks
+show isa nat-group 1 session-limits
+```
+
+**Thresholds**:
+- **Low watermark (80%)**: Warning, monitor closely
+- **High watermark (90%)**: Critical, scale or optimize
+
+### Port Optimization
+
+**Smaller port blocks = More subscribers**:
+```
+port-reservation 32  → 16,000 ports per sub
+port-reservation 64  →  8,000 ports per sub
+port-reservation 128 →  4,000 ports per sub
+```
+
+**Tradeoff**:
+- Smaller blocks = more logging events
+- Larger blocks = fewer ports per subscriber
+
+## Related Pages
+
+- [BNG1 Configuration](/reference/bng1-config)
+- [BNG2 Configuration](/reference/bng2-config)
+- [IPoE Service](/reference/ipoe-service)
+- [PPPoE Service](/reference/pppoe-service)

@@ -1,0 +1,369 @@
+---
+title: Switch Configuration Reference
+description: Configuration reference for the Nokia 7250 IXR and SR Linux switches aggregating traffic between BNGs and OLT
+---
+
+# Switch Configuration Reference
+
+Configuration reference for the aggregation switches in the Nokia BNG Lab.
+
+## Overview
+
+The lab uses two switch configurations:
+- **Nokia 7250 IXR** (SWITCH-7250): Main aggregation switch using SR OS
+- **SR Linux Switch** (SRL): Alternative configuration using SR Linux
+
+## Nokia 7250 IXR Configuration
+
+### Device Details
+
+**Device**: Nokia 7250 IXR
+**Name**: SWITCH-7250
+**Role**: Aggregation switch for BNG1, BNG2, and OLT traffic
+**Encapsulation**: QinQ (802.1ad)
+
+<Accordion title="System Configuration">
+
+```sros
+# System Name
+/configure system name "SWITCH-7250"
+
+# Time Zone
+/configure system time zone standard name est
+
+# Management Interfaces
+/configure system grpc admin-state enable
+/configure system grpc allow-unsecure-connection
+/configure system grpc gnmi auto-config-save true
+
+/configure system management-interface netconf listen admin-state enable
+/configure system management-interface configuration-save configuration-backups 5
+/configure system management-interface netconf auto-config-save true
+
+# SNMP
+/configure system management-interface snmp packet-size 9216
+/configure system management-interface snmp streaming admin-state enable
+/configure system security snmp community "public" access-permissions r
+/configure system security snmp community "public" version v2c
+
+# User Configuration
+/configure system security user-params local-user user "admin" password lab123
+/configure system security user-params local-user user "admin" access console true
+/configure system security user-params local-user user "admin" access ftp true
+/configure system security user-params local-user user "admin" access netconf true
+/configure system security user-params local-user user "admin" access grpc true
+/configure system security user-params local-user user "admin" console member ["administrative"]
+```
+
+</Accordion>
+
+<Accordion title="Port Configuration">
+
+### Port to TX (BNG1 and BNG2)
+
+```sros
+/configure port 1/1/1 admin-state enable
+/configure port 1/1/1 ethernet mode hybrid
+/configure port 1/1/1 ethernet encap-type qinq
+```
+
+**Purpose**: Connects to both BNG1 and BNG2
+**Mode**: Hybrid (supports multiple service types)
+**Encapsulation**: QinQ for double VLAN tagging
+
+### Port to OLT
+
+```sros
+/configure port 1/1/3 admin-state enable
+/configure port 1/1/3 ethernet mode hybrid
+/configure port 1/1/3 ethernet encap-type qinq
+```
+
+**Purpose**: Connects to OLT
+**Mode**: Hybrid
+**Encapsulation**: QinQ
+
+</Accordion>
+
+<Accordion title="VPLS Configuration">
+
+### VPLS to BNG1 (Service 50)
+
+```sros
+/configure service vpls "to-tx-50" admin-state enable
+/configure service vpls "to-tx-50" service-id 50
+/configure service vpls "to-tx-50" customer "1"
+/configure service vpls "to-tx-50" stp admin-state disable
+/configure service vpls "to-tx-50" sap 1/1/1:50.* admin-state enable
+/configure service vpls "to-tx-50" sap 1/1/3:50.* admin-state enable
+```
+
+**Service ID**: 50
+**Outer VLAN**: 50
+**Purpose**: Bridge traffic between BNG1 and OLT
+**SAPs**:
+- `1/1/1:50.*` - Connects to BNG1 (matches all inner VLANs)
+- `1/1/3:50.*` - Connects to OLT (matches all inner VLANs)
+
+### VPLS to BNG2 (Service 60)
+
+```sros
+/configure service vpls "to-tx-60" admin-state enable
+/configure service vpls "to-tx-60" service-id 60
+/configure service vpls "to-tx-60" customer "1"
+/configure service vpls "to-tx-60" stp admin-state disable
+/configure service vpls "to-tx-60" sap 1/1/1:60.* admin-state enable
+/configure service vpls "to-tx-60" sap 1/1/3:60.* admin-state enable
+```
+
+**Service ID**: 60
+**Outer VLAN**: 60
+**Purpose**: Bridge traffic between BNG2 and OLT
+**SAPs**:
+- `1/1/1:60.*` - Connects to BNG2 (matches all inner VLANs)
+- `1/1/3:60.*` - Connects to OLT (matches all inner VLANs)
+
+</Accordion>
+
+## SR Linux Configuration
+
+### Device Details
+
+**Type**: SR Linux
+**Role**: Alternative aggregation switch implementation
+**Configuration Style**: SR Linux CLI
+
+<Accordion title="Interface Configuration">
+
+### Interface to BNG1
+
+```bash
+set /interface ethernet-1/1 admin-state enable
+set /interface ethernet-1/1 vlan-tagging true
+set /interface ethernet-1/1 subinterface 50 type bridged
+set /interface ethernet-1/1 subinterface 50 admin-state enable
+set /interface ethernet-1/1 subinterface 50 vlan encap single-tagged vlan-id 50
+set /interface ethernet-1/1 tpid TPID_ANY
+```
+
+**Interface**: ethernet-1/1
+**Subinterface**: 50
+**VLAN ID**: 50
+**TPID**: TPID_ANY (accepts any TPID value)
+
+### Interface to BNG2
+
+```bash
+set /interface ethernet-1/2 admin-state enable
+set /interface ethernet-1/2 vlan-tagging true
+set /interface ethernet-1/2 subinterface 60 type bridged
+set /interface ethernet-1/2 subinterface 60 admin-state enable
+set /interface ethernet-1/2 subinterface 60 vlan encap single-tagged vlan-id 60
+set /interface ethernet-1/2 tpid TPID_ANY
+```
+
+**Interface**: ethernet-1/2
+**Subinterface**: 60
+**VLAN ID**: 60
+
+### Interface to Switch/OLT
+
+```bash
+set /interface ethernet-1/3 admin-state enable
+set /interface ethernet-1/3 vlan-tagging true
+set /interface ethernet-1/3 subinterface 50 type bridged
+set /interface ethernet-1/3 subinterface 50 admin-state enable
+set /interface ethernet-1/3 subinterface 50 vlan encap single-tagged vlan-id 50
+set /interface ethernet-1/3 subinterface 60 type bridged
+set /interface ethernet-1/3 subinterface 60 admin-state enable
+set /interface ethernet-1/3 subinterface 60 vlan encap single-tagged vlan-id 60
+set /interface ethernet-1/3 tpid TPID_ANY
+```
+
+**Interface**: ethernet-1/3
+**Subinterfaces**: 50 and 60 (trunk port)
+
+</Accordion>
+
+<Accordion title="MAC VRF Configuration">
+
+### MAC VRF for BNG1
+
+```bash
+set /network-instance bng1 type mac-vrf
+set /network-instance bng1 admin-state enable
+set /network-instance bng1 interface ethernet-1/1.50
+set /network-instance bng1 interface ethernet-1/3.50
+```
+
+**Network Instance**: bng1
+**Type**: mac-vrf (Layer 2 VPN)
+**Interfaces**: 
+- ethernet-1/1.50 (to BNG1)
+- ethernet-1/3.50 (to Switch)
+
+### MAC VRF for BNG2
+
+```bash
+set /network-instance bng2 type mac-vrf
+set /network-instance bng2 admin-state enable
+set /network-instance bng2 interface ethernet-1/2.60
+set /network-instance bng2 interface ethernet-1/3.60
+```
+
+**Network Instance**: bng2
+**Type**: mac-vrf
+**Interfaces**: 
+- ethernet-1/2.60 (to BNG2)
+- ethernet-1/3.60 (to Switch)
+
+</Accordion>
+
+<Accordion title="System Configuration">
+
+```bash
+# Admin Password
+set / system aaa authentication admin-user password lab123
+```
+
+</Accordion>
+
+## VLAN Tagging Scheme
+
+### Outer VLAN Tags
+
+| Service | Outer VLAN | BNG | Purpose |
+|---------|------------|-----|----------|
+| to-tx-50 | 50 | BNG1 | Primary BNG traffic |
+| to-tx-60 | 60 | BNG2 | Secondary BNG traffic |
+
+### Inner VLAN Tags
+
+| Inner VLAN | Service Type | Description |
+|------------|--------------|-------------|
+| 150 | IPoE/PPPoE | Subscriber sessions from ONT1 |
+| 150 | IPoE/PPPoE | Subscriber sessions from ONT2 |
+
+### QinQ Structure
+
+```
+Subscriber Frame:
+[Ethernet Header][Outer VLAN: 50 or 60][Inner VLAN: 150][IP/PPPoE][Payload]
+                 ↑                       ↑
+                 Service identifier      Subscriber identifier
+```
+
+## Port Mapping
+
+### Nokia 7250 IXR
+
+```
+┌─────────────────────────────────────────┐
+│        Nokia 7250 IXR (SWITCH)          │
+│                                         │
+│  1/1/1 ←→ BNG1 + BNG2                   │
+│  1/1/3 ←→ OLT                           │
+│                                         │
+│  VPLS 50: 1/1/1:50.* ↔ 1/1/3:50.*      │
+│  VPLS 60: 1/1/1:60.* ↔ 1/1/3:60.*      │
+└─────────────────────────────────────────┘
+```
+
+### SR Linux
+
+```
+┌─────────────────────────────────────────┐
+│           SR Linux Switch               │
+│                                         │
+│  ethernet-1/1 ←→ BNG1 (VLAN 50)         │
+│  ethernet-1/2 ←→ BNG2 (VLAN 60)         │
+│  ethernet-1/3 ←→ OLT (VLANs 50+60)      │
+│                                         │
+│  mac-vrf bng1: eth-1/1.50 ↔ eth-1/3.50 │
+│  mac-vrf bng2: eth-1/2.60 ↔ eth-1/3.60 │
+└─────────────────────────────────────────┘
+```
+
+## Verification Commands
+
+### SR OS (7250 IXR)
+
+```bash
+# Show VPLS status
+show service id 50 base
+show service id 60 base
+
+# Show SAP details
+show service sap 1/1/1:50.*
+show service sap 1/1/3:50.*
+
+# Show MAC addresses
+show service id 50 fdb detail
+show service id 60 fdb detail
+
+# Show port statistics
+show port 1/1/1 statistics
+show port 1/1/3 statistics
+```
+
+### SR Linux
+
+```bash
+# Show network instances
+info from state /network-instance bng1
+info from state /network-instance bng2
+
+# Show interfaces
+info from state /interface ethernet-1/1
+info from state /interface ethernet-1/2
+info from state /interface ethernet-1/3
+
+# Show MAC table
+info from state /network-instance bng1 bridge-table mac-table
+info from state /network-instance bng2 bridge-table mac-table
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+<Accordion title="No connectivity between BNG and OLT">
+
+**Check**:
+1. Port admin state: `show port 1/1/1`
+2. VPLS service state: `show service id 50 base`
+3. SAP operational state: `show service sap 1/1/1:50.*`
+
+**Fix**:
+```bash
+/configure port 1/1/1 admin-state enable
+/configure service vpls "to-tx-50" admin-state enable
+```
+
+</Accordion>
+
+<Accordion title="VLAN mismatch">
+
+**Symptoms**: Packets not forwarded, no MAC learning
+
+**Verify VLAN configuration**:
+```bash
+show port 1/1/1 ethernet encap-type
+show service id 50 sap 1/1/1:50.* detail
+```
+
+**Correct configuration**:
+- Port encap-type: qinq
+- SAP format: port:outer-vlan.inner-vlan
+- Wildcard for inner VLAN: `*`
+
+</Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+- [OLT Configuration](/reference/olt-config)
+- [BNG1 Configuration](/reference/bng1-config)
+- [BNG2 Configuration](/reference/bng2-config)
+- [Network Topology](/guides/architecture)
